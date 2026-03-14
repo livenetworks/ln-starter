@@ -72,10 +72,27 @@ class LnStarterServiceProvider extends ServiceProvider
             __DIR__ . '/../config/ln-starter.php' => config_path('ln-starter.php'),
         ], 'ln-starter-config');
 
-        // Blade layouts
+        // Scaffold — starter _app layout for the project
         $this->publishes([
-            __DIR__ . '/../resources/views' => resource_path('views/vendor/ln-starter'),
+            __DIR__ . '/../resources/views/layouts/_app.scaffold.blade.php' => resource_path('views/layouts/_app.blade.php'),
+        ], 'ln-starter-scaffold');
+
+        // Override package views (auth pages, layouts)
+        $this->publishes([
+            __DIR__ . '/../resources/views/auth'    => resource_path('views/vendor/ln-starter/auth'),
+            __DIR__ . '/../resources/views/layouts'  => resource_path('views/vendor/ln-starter/layouts'),
+            __DIR__ . '/../resources/views/emails'   => resource_path('views/vendor/ln-starter/emails'),
         ], 'ln-starter-views');
+
+        // Auth SCSS
+        $this->publishes([
+            __DIR__ . '/../resources/scss/auth.scss' => resource_path('scss/auth.scss'),
+        ], 'ln-starter-auth-css');
+
+        // Migrations
+        $this->publishes([
+            __DIR__ . '/../database/migrations' => database_path('migrations'),
+        ], 'ln-starter-migrations');
 
         // Stubs
         $this->publishes([
@@ -86,15 +103,5 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__ . '/../skills/ln-starter' => base_path('.claude/skills/ln-starter'),
         ], 'ln-starter-skill');
-
-        // Migrations
-        $this->publishes([
-            __DIR__ . '/../database/migrations' => database_path('migrations'),
-        ], 'ln-starter-migrations');
-
-        // Auth SCSS
-        $this->publishes([
-            __DIR__ . '/../resources/scss/auth.scss' => resource_path('scss/auth.scss'),
-        ], 'ln-starter-auth-css');
     }
 }
