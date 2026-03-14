@@ -1,0 +1,85 @@
+<?php
+
+namespace {{ namespace }};
+
+use LiveNetworks\LnStarter\Http\LNController;
+use LiveNetworks\LnStarter\DTOs\Message;
+use {{ readModel }};
+use {{ writeModel }};
+use Illuminate\Http\Request;
+
+class {{ class }} extends LNController
+{
+    public function index()
+    {
+        $items = {{ readModelClass }}::paginate(25);
+
+        return $this->view('{{ viewPrefix }}.index')
+            ->respondWith($items);
+    }
+
+    public function create()
+    {
+        return $this->view('{{ viewPrefix }}.form')
+            ->respondWith([]);
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            // Define validation rules
+        ]);
+
+        $item = {{ writeModelClass }}::create($validated);
+
+        return $this->view('{{ viewPrefix }}.index')
+            ->respondWith(
+                $item,
+                new Message('success', __('Created'), __('Record created successfully.'))
+            );
+    }
+
+    public function show(int $id)
+    {
+        $item = {{ readModelClass }}::findOrFail($id);
+
+        return $this->view('{{ viewPrefix }}.show')
+            ->respondWith($item);
+    }
+
+    public function edit(int $id)
+    {
+        $item = {{ writeModelClass }}::findOrFail($id);
+
+        return $this->view('{{ viewPrefix }}.form')
+            ->respondWith($item);
+    }
+
+    public function update(Request $request, int $id)
+    {
+        $validated = $request->validate([
+            // Define validation rules
+        ]);
+
+        $item = {{ writeModelClass }}::findOrFail($id);
+        $item->update($validated);
+
+        return $this->view('{{ viewPrefix }}.show')
+            ->respondWith(
+                $item,
+                new Message('success', __('Updated'), __('Record updated successfully.'))
+            );
+    }
+
+    public function destroy(int $id)
+    {
+        $item = {{ writeModelClass }}::findOrFail($id);
+        $item->delete();
+
+        return $this->view('{{ viewPrefix }}.index')
+            ->respondWith(
+                null,
+                new Message('success', __('Deleted'), __('Record deleted successfully.'))
+            );
+    }
+}

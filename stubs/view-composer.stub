@@ -1,0 +1,15 @@
+<?php
+
+namespace {{ namespace }};
+
+use LiveNetworks\LnStarter\View\LNViewComposer;
+use Illuminate\View\View;
+
+class {{ class }} extends LNViewComposer
+{
+    public function enrich(array &$content, View $view): void
+    {
+        // Add secondary data for the view
+        // $content['categories'] = Category::orderBy('name')->get();
+    }
+}

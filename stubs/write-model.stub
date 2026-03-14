@@ -1,0 +1,14 @@
+<?php
+
+namespace {{ namespace }};
+
+use LiveNetworks\LnStarter\Models\LNWriteModel;
+
+class {{ class }} extends LNWriteModel
+{
+    protected $table = '{{ table }}';
+
+    protected $fillable = [
+        // Define fillable fields
+    ];
+}

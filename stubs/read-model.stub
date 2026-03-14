@@ -1,0 +1,10 @@
+<?php
+
+namespace {{ namespace }};
+
+use LiveNetworks\LnStarter\Models\LNReadModel;
+
+class {{ class }} extends LNReadModel
+{
+    protected $table = '{{ table }}';
+}
