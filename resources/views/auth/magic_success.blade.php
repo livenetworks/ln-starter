@@ -4,6 +4,8 @@
 
 @section('content')
 	<div class="auth-content auth-content--centered">
+		<span class="auth-status__icon ln-icon-check-circle--green ln-icon--xl" aria-hidden="true"></span>
+
 		<h2 class="auth-status__title">{{ __('Login successful!') }}</h2>
 		<p class="auth-status__text">
 			{{ __('You can close this window and continue on your computer.') }}

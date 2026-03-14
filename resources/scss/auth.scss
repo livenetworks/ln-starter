@@ -1,0 +1,223 @@
+@use 'ln-acme/scss/config/tokens';
+@use 'ln-acme/scss/config/mixins' as *;
+@use 'ln-acme/scss/base/reset';
+@use 'ln-acme/scss/base/global';
+@use 'ln-acme/scss/base/typography';
+
+// ==========================================================================
+// Auth layout
+// ==========================================================================
+
+.auth-layout {
+	@include bg-body;
+	@include text-primary;
+	@include min-h-screen;
+	@include flex-col;
+	@include font-sans;
+}
+
+.auth-header {
+	@include text-center;
+	@include p(var(--spacing-lg));
+	max-width: 640px;
+	@include mx(auto);
+	@include w-full;
+}
+
+.auth-header__logo {
+	height: 4rem;
+	width: auto;
+	@include mx(auto);
+	@include mb(var(--spacing-sm));
+}
+
+.auth-header__title {
+	@include text-lg;
+	@include font-semibold;
+}
+
+.auth-main {
+	@include flex-1;
+	@include w-full;
+	max-width: 640px;
+	@include mx(auto);
+	@include px(var(--spacing-md));
+	@include py(var(--spacing-lg));
+}
+
+.auth-footer {
+	@include text-center;
+	@include text-sm;
+	@include text-muted;
+	@include p(var(--spacing-md));
+
+	a {
+		color: var(--color-primary-hover);
+
+		&:hover {
+			text-decoration: underline;
+		}
+	}
+}
+
+// ==========================================================================
+// Auth card
+// ==========================================================================
+
+.auth-content {
+	max-width: 24rem;
+	@include mx(auto);
+}
+
+.auth-content--centered {
+	@include text-center;
+}
+
+.auth-card {
+	@include bg-primary;
+	@include border;
+	@include shadow-sm;
+	@include p(var(--spacing-lg));
+}
+
+.auth-card__title {
+	@include text-center;
+	@include text-2xl;
+	@include font-semibold;
+	@include mb(1.25rem);
+}
+
+// ==========================================================================
+// Auth form
+// ==========================================================================
+
+.auth-form {
+	@include flex-col;
+	@include gap(var(--spacing-md));
+}
+
+.auth-form__label {
+	@include block;
+	@include text-sm;
+	@include font-medium;
+	@include text-secondary;
+}
+
+.auth-form__input {
+	@include block;
+	@include w-full;
+	@include border;
+	@include px(var(--spacing-sm));
+	@include py(var(--spacing-sm));
+	@include mt(0.25rem);
+	@include text-primary;
+	outline: none;
+
+	&::placeholder {
+		@include text-muted;
+	}
+
+	&:focus {
+		border-color: var(--color-primary);
+		outline: none;
+	}
+}
+
+.auth-form__hint {
+	@include mt(0.25rem);
+	@include text-xs;
+	@include text-muted;
+}
+
+.auth-form__button {
+	@include btn;
+	@include w-full;
+}
+
+.auth-form__alt {
+	@include text-center;
+	@include text-xs;
+	@include text-muted;
+}
+
+.auth-form__link {
+	color: var(--color-primary-hover);
+
+	&:hover {
+		text-decoration: underline;
+	}
+}
+
+// ==========================================================================
+// Auth status pages (wait, success, error)
+// ==========================================================================
+
+.auth-status__icon {
+	@include block;
+	@include mx(auto);
+	@include mb(var(--spacing-md));
+}
+
+.auth-status__title {
+	@include text-2xl;
+	@include font-semibold;
+	@include mb(var(--spacing-sm));
+	@include text-primary;
+}
+
+.auth-status__text {
+	@include text-secondary;
+	@include mb(var(--spacing-lg));
+}
+
+.auth-status__state {
+	@include text-sm;
+	@include text-muted;
+}
+
+.auth-status__timeout {
+	display: none;
+	@include mt(var(--spacing-md));
+	@include p(var(--spacing-md));
+	background-color: #fefce8;
+	border: 1px solid #fde68a;
+
+	p {
+		@include text-sm;
+		color: #92400e;
+		@include mb(var(--spacing-sm));
+	}
+
+	a {
+		@include text-sm;
+		color: var(--color-primary-hover);
+
+		&:hover {
+			text-decoration: underline;
+		}
+	}
+}
+
+// ==========================================================================
+// Auth disclaimer
+// ==========================================================================
+
+.auth-disclaimer {
+	@include text-center;
+	@include text-xs;
+	@include text-muted;
+	@include mt(var(--spacing-md));
+}
+
+.auth-disclaimer--spaced {
+	@include mt(var(--spacing-lg));
+}
+
+// ==========================================================================
+// Shared components for auth views
+// ==========================================================================
+
+.btn-primary {
+	@include btn;
+	@include w-full;
+}

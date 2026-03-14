@@ -216,11 +216,15 @@ The package provides opt-in passwordless auth. Enable with `config('ln-starter.a
 ### Project setup checklist
 
 1. Set `auth.enabled` to `true` in config
-2. Ensure User model uses `HasApiTokens` and has `'email'` in `$fillable`
-3. Run `php artisan migrate`
-4. In `bootstrap/app.php`: prepend `AuthorizationFromCookie`, exclude `auth_token` from cookie encryption
-5. Define a `home` named route (or change `auth.home_route`)
-6. Publish views if you need to customize branding: `php artisan vendor:publish --tag=ln-starter-views`
+2. `php artisan vendor:publish --tag=ln-starter-auth-css` — copies `auth.scss` to `resources/scss/`
+3. Add `resources/scss/auth.scss` to Vite input array, run `npm run build`
+4. Ensure User model uses `HasApiTokens` and has `'email'` in `$fillable`
+5. Run `php artisan migrate`
+6. In `bootstrap/app.php`: prepend `AuthorizationFromCookie`, exclude `auth_token` from cookie encryption
+7. Define a `home` named route (or change `auth.home_route`)
+8. Publish views if you need to customize branding: `php artisan vendor:publish --tag=ln-starter-views`
+
+**Peer dependency:** `ln-acme` must be installed via npm — the SCSS uses `@use 'ln-acme/scss/config/mixins'` and `ln-acme/scss/config/tokens`.
 
 ## Stack context
 

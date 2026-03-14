@@ -18,5 +18,7 @@
 				<button type="submit" class="auth-form__button">{{ __('Send magic link') }}</button>
 			</form>
 		</div>
+
+		<p class="auth-disclaimer auth-disclaimer--spaced">{{ __('By logging in you agree to the terms of use.') }}</p>
 	</div>
 @endsection

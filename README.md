@@ -35,6 +35,9 @@ php artisan vendor:publish --tag=ln-starter-views
 # Migrations (magic_link_tokens table)
 php artisan vendor:publish --tag=ln-starter-migrations
 
+# Auth SCSS (publishes to resources/scss/auth.scss)
+php artisan vendor:publish --tag=ln-starter-auth-css
+
 # Stubs (for scaffolding new controllers/models)
 php artisan vendor:publish --tag=ln-starter-stubs
 
@@ -77,6 +80,8 @@ ln-starter/
 │   └── migrations/
 │       └── create_magic_link_tokens_table.php
 ├── resources/
+│   ├── scss/
+│   │   └── auth.scss                  # Auth styles (BEM, ln-acme mixins)
 │   └── views/
 │       ├── layouts/
 │       │   ├── _ln.blade.php          # Layout switcher (AJAX vs full page)
@@ -286,7 +291,37 @@ The package includes an opt-in passwordless authentication module using magic li
 ],
 ```
 
-**2. User model prerequisites**
+**2. Publish auth styles and add to Vite**
+
+```bash
+php artisan vendor:publish --tag=ln-starter-auth-css
+```
+
+This copies `auth.scss` to `resources/scss/auth.scss`. Add it to your `vite.config.js` input array:
+
+```js
+export default defineConfig({
+    plugins: [
+        laravel({
+            input: [
+                'resources/scss/auth.scss',  // ← add this
+                'resources/scss/app.scss',
+                'resources/js/app.js',
+            ],
+        }),
+    ],
+});
+```
+
+Then build:
+
+```bash
+npm run build
+```
+
+> **Peer dependency:** `ln-acme` must be installed via npm. The SCSS uses `@use 'ln-acme/scss/config/mixins'` and `ln-acme/scss/config/tokens`.
+
+**3. User model prerequisites**
 
 Your `User` model must:
 - Use the `Laravel\Sanctum\HasApiTokens` trait
@@ -303,7 +338,7 @@ class User extends Authenticatable
 }
 ```
 
-**3. Run migrations**
+**4. Run migrations**
 
 ```bash
 php artisan migrate
@@ -315,7 +350,7 @@ This creates the `magic_link_tokens` table. The migration is loaded automaticall
 php artisan vendor:publish --tag=ln-starter-migrations
 ```
 
-**4. Exclude auth_token from cookie encryption**
+**5. Exclude auth_token from cookie encryption**
 
 In `bootstrap/app.php`:
 
@@ -325,7 +360,7 @@ In `bootstrap/app.php`:
 })
 ```
 
-**5. Prepend the cookie-to-header middleware**
+**6. Prepend the cookie-to-header middleware**
 
 In `bootstrap/app.php`:
 

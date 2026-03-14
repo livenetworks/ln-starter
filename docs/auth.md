@@ -11,6 +11,7 @@ Before enabling, ensure your project has:
 1. **Laravel Sanctum** installed and configured
 2. **User model** with `HasApiTokens` trait and `'email'` in `$fillable`
 3. **Mail** configured (SMTP, Mailgun, etc.) — the module sends emails
+4. **ln-acme** installed via npm (peer dependency for auth SCSS)
 
 ## Setup
 
@@ -33,7 +34,37 @@ In `config/ln-starter.php`, set `auth.enabled` to `true`:
 ],
 ```
 
-### Step 2: Run migrations
+### Step 2: Publish auth styles
+
+```bash
+php artisan vendor:publish --tag=ln-starter-auth-css
+```
+
+This copies `auth.scss` to `resources/scss/auth.scss`. Add it to your `vite.config.js`:
+
+```js
+export default defineConfig({
+    plugins: [
+        laravel({
+            input: [
+                'resources/scss/auth.scss',  // ← add this
+                'resources/scss/app.scss',
+                'resources/js/app.js',
+            ],
+        }),
+    ],
+});
+```
+
+Build frontend assets:
+
+```bash
+npm run build
+```
+
+The SCSS uses `@use 'ln-acme/scss/config/mixins'` and `ln-acme/scss/config/tokens` — `ln-acme` must be installed via npm.
+
+### Step 3: Run migrations
 
 ```bash
 php artisan migrate
@@ -45,7 +76,7 @@ This creates the `magic_link_tokens` table. To publish the migration for customi
 php artisan vendor:publish --tag=ln-starter-migrations
 ```
 
-### Step 3: Configure middleware in bootstrap/app.php
+### Step 4: Configure middleware in bootstrap/app.php
 
 ```php
 use Illuminate\Foundation\Configuration\Middleware;
@@ -67,7 +98,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 })
 ```
 
-### Step 4: Define the home route
+### Step 5: Define the home route
 
 The module redirects to `route('home')` after login (configurable via `auth.home_route`). Make sure this route exists:
 

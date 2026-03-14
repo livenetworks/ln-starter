@@ -91,5 +91,10 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__ . '/../database/migrations' => database_path('migrations'),
         ], 'ln-starter-migrations');
+
+        // Auth SCSS
+        $this->publishes([
+            __DIR__ . '/../resources/scss/auth.scss' => resource_path('scss/auth.scss'),
+        ], 'ln-starter-auth-css');
     }
 }

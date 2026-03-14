@@ -4,6 +4,8 @@
 
 @section('content')
 	<div class="auth-content auth-content--centered">
+		<span class="auth-status__icon ln-icon-error-circle--red ln-icon--xl" aria-hidden="true"></span>
+
 		<h2 class="auth-status__title">{{ __('Problem with the link') }}</h2>
 		<p class="auth-status__text">
 			{{ $message ?? __('Link is invalid or expired.') }}

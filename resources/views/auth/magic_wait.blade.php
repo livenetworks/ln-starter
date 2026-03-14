@@ -4,6 +4,8 @@
 
 @section('content')
 	<div class="auth-content auth-content--centered">
+		<span class="auth-status__icon ln-icon-envelope ln-icon--xl" aria-hidden="true"></span>
+
 		<h2 class="auth-status__title">{{ __('Check email') }}</h2>
 		<p class="auth-status__text">
 			{{ __('We sent a login link. Open it on your phone or another device and we will continue automatically here.') }}
@@ -11,7 +13,7 @@
 
 		<div id="state" class="auth-status__state">{{ __('Waiting for confirmation') }}…</div>
 
-		<div id="timeout-message" class="auth-status__timeout" style="display:none">
+		<div id="timeout-message" class="auth-status__timeout">
 			<p>{{ __('Time expired. The link is valid for 15 more minutes.') }}</p>
 			<a href="{{ route('login') }}">{{ __('Back to login') }}</a>
 		</div>
