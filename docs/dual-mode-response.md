@@ -64,7 +64,7 @@ The `_ln` layout is the entry point for all views. It detects whether the reques
 
 ```blade
 @extends(request()->header('X-Requested-With') === 'XMLHttpRequest'
-    ? 'ln-starter::layouts._ajax'
+    ? 'layouts._ajax'
     : 'layouts._app')
 ```
 
@@ -118,7 +118,7 @@ class MemberController extends LNController
 ### Blade view
 
 ```blade
-@extends('ln-starter::layouts._ln')
+@extends('layouts._ln')
 
 @section('title', 'Members')
 

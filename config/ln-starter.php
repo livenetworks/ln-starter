@@ -22,7 +22,7 @@ return [
     | Blade sections. The package provides a default; override if needed.
     |
     */
-    'ajax_layout' => 'ln-starter::layouts._ajax',
+    'ajax_layout' => 'layouts._ajax',
 
     /*
     |--------------------------------------------------------------------------
@@ -58,7 +58,7 @@ return [
         'token_expiry' => 15, // minutes
         'home_route'   => 'home',
         'mail_subject' => 'Magic Link Login',
-        'layout'       => 'ln-starter::layouts._auth',
+        'layout'       => 'layouts._auth',
     ],
 
 ];

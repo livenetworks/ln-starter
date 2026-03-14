@@ -1,4 +1,4 @@
-@extends(config('ln-starter.auth.layout', 'ln-starter::layouts._auth'))
+@extends(config('ln-starter.auth.layout', 'layouts._auth'))
 
 @section('title', __('Success'))
 

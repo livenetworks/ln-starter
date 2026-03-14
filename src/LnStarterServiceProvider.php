@@ -72,16 +72,18 @@ class LnStarterServiceProvider extends ServiceProvider
             __DIR__ . '/../config/ln-starter.php' => config_path('ln-starter.php'),
         ], 'ln-starter-config');
 
-        // Scaffold — starter _app layout for the project
+        // Layouts — publish to project's views/layouts/
         $this->publishes([
             __DIR__ . '/../resources/views/layouts/_app.scaffold.blade.php' => resource_path('views/layouts/_app.blade.php'),
-        ], 'ln-starter-scaffold');
+            __DIR__ . '/../resources/views/layouts/_ln.blade.php'          => resource_path('views/layouts/_ln.blade.php'),
+            __DIR__ . '/../resources/views/layouts/_ajax.blade.php'        => resource_path('views/layouts/_ajax.blade.php'),
+            __DIR__ . '/../resources/views/layouts/_auth.blade.php'        => resource_path('views/layouts/_auth.blade.php'),
+        ], 'ln-starter-layouts');
 
-        // Override package views (auth pages, layouts)
+        // Auth views — publish to vendor override path
         $this->publishes([
-            __DIR__ . '/../resources/views/auth'    => resource_path('views/vendor/ln-starter/auth'),
-            __DIR__ . '/../resources/views/layouts'  => resource_path('views/vendor/ln-starter/layouts'),
-            __DIR__ . '/../resources/views/emails'   => resource_path('views/vendor/ln-starter/emails'),
+            __DIR__ . '/../resources/views/auth'   => resource_path('views/vendor/ln-starter/auth'),
+            __DIR__ . '/../resources/views/emails' => resource_path('views/vendor/ln-starter/emails'),
         ], 'ln-starter-views');
 
         // Auth SCSS

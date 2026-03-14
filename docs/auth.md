@@ -30,7 +30,7 @@ In `config/ln-starter.php`, set `auth.enabled` to `true`:
     'token_expiry' => 15,                    // magic link validity in minutes
     'home_route'   => 'home',               // route name after successful login
     'mail_subject' => 'Magic Link Login',   // email subject (translatable)
-    'layout'       => 'ln-starter::layouts._auth', // auth page layout
+    'layout'       => 'layouts._auth', // auth page layout
 ],
 ```
 
@@ -175,7 +175,7 @@ All routes are registered in the `web` middleware group.
 | `auth.token_expiry` | int | `15` | Magic link validity in minutes |
 | `auth.home_route` | string | `home` | Named route for post-login redirect |
 | `auth.mail_subject` | string | `Magic Link Login` | Email subject (passed through `__()`) |
-| `auth.layout` | string | `ln-starter::layouts._auth` | Blade layout for auth pages |
+| `auth.layout` | string | `layouts._auth` | Blade layout for auth pages |
 
 ## Customizing Views
 

@@ -135,7 +135,7 @@ Route::apiResource('api/products', ApiProductController::class);
 ### 8. Blade views extend _ln
 
 ```blade
-@extends('ln-starter::layouts._ln')
+@extends('layouts._ln')
 
 @section('title', 'Products')
 
@@ -185,7 +185,7 @@ When asked to create a new CRUD or feature, follow this order:
 3. **Read model** — extends `LNReadModel`, set `$table` (if using a DB view)
 4. **Controller** — extends `LNController`, use `view()->respondWith()`
 5. **View composer** — extends `LNViewComposer`, implement `enrich()` for form dropdowns etc.
-6. **Blade views** — extend `ln-starter::layouts._ln`
+6. **Blade views** — extend `layouts._ln`
 7. **Routes** — single `Route::resource()`, no API duplication
 8. **Register composer** — in a service provider
 
@@ -211,7 +211,7 @@ The package provides opt-in passwordless auth. Enable with `config('ln-starter.a
 | `auth.token_expiry` | `15` | Token validity in minutes |
 | `auth.home_route` | `home` | Post-login redirect route |
 | `auth.mail_subject` | `Magic Link Login` | Email subject (translatable) |
-| `auth.layout` | `ln-starter::layouts._auth` | Auth views layout |
+| `auth.layout` | `layouts._auth` | Auth views layout |
 
 ### Project setup checklist
 

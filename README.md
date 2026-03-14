@@ -29,14 +29,17 @@ The service provider auto-registers via Laravel package discovery.
 # Config (includes auth settings)
 php artisan vendor:publish --tag=ln-starter-config
 
-# Blade views (layouts, auth pages, email templates)
-php artisan vendor:publish --tag=ln-starter-views
+# Layouts (_app, _ln, _ajax, _auth → resources/views/layouts/)
+php artisan vendor:publish --tag=ln-starter-layouts
 
-# Migrations (magic_link_tokens table)
-php artisan vendor:publish --tag=ln-starter-migrations
+# Auth views & email templates (override package views)
+php artisan vendor:publish --tag=ln-starter-views
 
 # Auth SCSS (publishes to resources/scss/auth.scss)
 php artisan vendor:publish --tag=ln-starter-auth-css
+
+# Migrations (magic_link_tokens, personal_access_tokens)
+php artisan vendor:publish --tag=ln-starter-migrations
 
 # Stubs (for scaffolding new controllers/models)
 php artisan vendor:publish --tag=ln-starter-stubs
@@ -157,7 +160,7 @@ The `_ln.blade.php` layout handles the AJAX/full-page switch:
 
 ```blade
 @extends(request()->header('X-Requested-With') === 'XMLHttpRequest'
-    ? 'ln-starter::layouts._ajax'
+    ? 'layouts._ajax'
     : 'layouts._app')
 ```
 
@@ -254,7 +257,7 @@ return [
     'layout' => 'layouts._app',
 
     // Layout for AJAX requests (provided by package)
-    'ajax_layout' => 'ln-starter::layouts._ajax',
+    'ajax_layout' => 'layouts._ajax',
 
     // Middleware aliases registered by the package
     'middleware_aliases' => [
@@ -270,7 +273,7 @@ return [
         'token_expiry' => 15,           // minutes
         'home_route'   => 'home',       // route name after login
         'mail_subject' => 'Magic Link Login',
-        'layout'       => 'ln-starter::layouts._auth',
+        'layout'       => 'layouts._auth',
     ],
 ];
 ```

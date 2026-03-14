@@ -14,7 +14,7 @@ LN-Starter is a Laravel foundation package by Live Networks. It provides base cl
 
 3. **View composers**: `LNViewComposer` provides a base class. Implement `enrich(array &$content, View $view)` to add secondary data (dropdowns, related records) without cluttering the controller.
 
-4. **Layout switching**: `_ln.blade.php` extends either `_ajax` (for XHR) or the app's full layout. Views should `@extends('ln-starter::layouts._ln')`.
+4. **Layout switching**: `_ln.blade.php` extends either `_ajax` (for XHR) or the app's full layout. Views should `@extends('layouts._ln')`.
 
 5. **Message DTO**: All controller responses can carry a `Message` object with `type`, `title`, `body`, and `data`.
 

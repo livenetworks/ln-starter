@@ -77,7 +77,7 @@ throw new \Exception('Not found'); // too generic
 Views that participate in dual-mode response should extend `_ln`:
 
 ```blade
-@extends('ln-starter::layouts._ln')
+@extends('layouts._ln')
 
 @section('title', 'Page Title')
 
