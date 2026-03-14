@@ -189,6 +189,39 @@ When asked to create a new CRUD or feature, follow this order:
 7. **Routes** — single `Route::resource()`, no API duplication
 8. **Register composer** — in a service provider
 
+## Auth module (magic link)
+
+The package provides opt-in passwordless auth. Enable with `config('ln-starter.auth.enabled', true)`.
+
+### What it provides
+
+- `AuthController` — `magicLink()`, `magicWait()`, `magicStatus()`, `magicVerify()`, `logout()`
+- `MagicLinkToken` model — with configurable user relationship
+- `MagicLinkMail` — with configurable subject
+- Views — login, wait, success, error, email template
+- Routes — registered automatically when enabled
+- Migration — `magic_link_tokens` table
+
+### Config keys
+
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `auth.enabled` | `false` | Enable the module |
+| `auth.user_model` | `App\Models\User` | User model class (must use `HasApiTokens`) |
+| `auth.token_expiry` | `15` | Token validity in minutes |
+| `auth.home_route` | `home` | Post-login redirect route |
+| `auth.mail_subject` | `Magic Link Login` | Email subject (translatable) |
+| `auth.layout` | `ln-starter::layouts._auth` | Auth views layout |
+
+### Project setup checklist
+
+1. Set `auth.enabled` to `true` in config
+2. Ensure User model uses `HasApiTokens` and has `'email'` in `$fillable`
+3. Run `php artisan migrate`
+4. In `bootstrap/app.php`: prepend `AuthorizationFromCookie`, exclude `auth_token` from cookie encryption
+5. Define a `home` named route (or change `auth.home_route`)
+6. Publish views if you need to customize branding: `php artisan vendor:publish --tag=ln-starter-views`
+
 ## Stack context
 
 - **Backend**: Laravel 11+, Blade SSR (no SPA frameworks)

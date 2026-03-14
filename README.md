@@ -26,11 +26,14 @@ The service provider auto-registers via Laravel package discovery.
 ### Publish assets
 
 ```bash
-# Config
+# Config (includes auth settings)
 php artisan vendor:publish --tag=ln-starter-config
 
-# Blade layouts (_ln, _ajax)
+# Blade views (layouts, auth pages, email templates)
 php artisan vendor:publish --tag=ln-starter-views
+
+# Migrations (magic_link_tokens table)
+php artisan vendor:publish --tag=ln-starter-migrations
 
 # Stubs (for scaffolding new controllers/models)
 php artisan vendor:publish --tag=ln-starter-stubs
@@ -46,6 +49,8 @@ ln-starter/
 ├── src/
 │   ├── Http/
 │   │   ├── LNController.php          # Base controller with dual-mode response
+│   │   ├── Controllers/
+│   │   │   └── AuthController.php     # Passwordless auth (magic link)
 │   │   └── Middleware/
 │   │       ├── AuthenticateWithSanctum.php   # Bearer token auth
 │   │       ├── AuthorizationFromCookie.php   # Cookie→Bearer bridge
@@ -55,7 +60,10 @@ ln-starter/
 │   │   └── LNViewComposer.php        # Base view composer
 │   ├── Models/
 │   │   ├── LNReadModel.php            # Read-only Eloquent (DB views)
-│   │   └── LNWriteModel.php           # Write Eloquent (no timestamps)
+│   │   ├── LNWriteModel.php           # Write Eloquent (no timestamps)
+│   │   └── MagicLinkToken.php         # Magic link token model
+│   ├── Mail/
+│   │   └── MagicLinkMail.php          # Magic link email
 │   ├── DTOs/
 │   │   └── Message.php                # Unified response message
 │   ├── Exceptions/
@@ -63,16 +71,31 @@ ln-starter/
 │   └── LnStarterServiceProvider.php   # Package service provider
 ├── config/
 │   └── ln-starter.php                 # Package configuration
+├── routes/
+│   └── auth.php                       # Auth routes (loaded when enabled)
+├── database/
+│   └── migrations/
+│       └── create_magic_link_tokens_table.php
 ├── resources/
 │   └── views/
-│       └── layouts/
-│           ├── _ln.blade.php          # Layout switcher (AJAX vs full page)
-│           └── _ajax.blade.php        # JSON response layout for AJAX
+│       ├── layouts/
+│       │   ├── _ln.blade.php          # Layout switcher (AJAX vs full page)
+│       │   ├── _ajax.blade.php        # JSON response layout for AJAX
+│       │   └── _auth.blade.php        # Minimal auth layout
+│       ├── auth/
+│       │   ├── login.blade.php        # Login form (magic link)
+│       │   ├── magic_wait.blade.php   # Polling wait page
+│       │   ├── magic_success.blade.php# Verification success
+│       │   └── magic_error.blade.php  # Verification error
+│       └── emails/
+│           └── magic-link.blade.php   # Magic link email template
 ├── docs/
+│   ├── auth.md                        # Auth module setup & flow
 │   ├── dual-mode-response.md          # How the response system works
 │   ├── read-write-models.md           # Read/write model separation
 │   ├── message-dto.md                 # Message DTO usage
 │   ├── middleware.md                   # Middleware reference
+│   ├── view-composers.md              # View composer pattern
 │   └── conventions.md                 # Naming and architecture conventions
 ├── stubs/
 │   ├── controller.stub                # Controller scaffold
@@ -234,8 +257,128 @@ return [
         'cookie.auth'     => \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class,
         'disable-csrf'    => \LiveNetworks\LnStarter\Http\Middleware\DisableCsrf::class,
     ],
+
+    // Passwordless auth (magic link)
+    'auth' => [
+        'enabled'      => false,        // opt-in
+        'user_model'   => 'App\\Models\\User',
+        'token_expiry' => 15,           // minutes
+        'home_route'   => 'home',       // route name after login
+        'mail_subject' => 'Magic Link Login',
+        'layout'       => 'ln-starter::layouts._auth',
+    ],
 ];
 ```
+
+## Auth module (Passwordless / Magic Link)
+
+The package includes an opt-in passwordless authentication module using magic links. Disabled by default.
+
+### Setup
+
+**1. Enable in config**
+
+```php
+// config/ln-starter.php
+'auth' => [
+    'enabled' => true,
+    // ...
+],
+```
+
+**2. User model prerequisites**
+
+Your `User` model must:
+- Use the `Laravel\Sanctum\HasApiTokens` trait
+- Have `'email'` in `$fillable`
+
+```php
+use Laravel\Sanctum\HasApiTokens;
+
+class User extends Authenticatable
+{
+    use HasApiTokens;
+
+    protected $fillable = ['email'];
+}
+```
+
+**3. Run migrations**
+
+```bash
+php artisan migrate
+```
+
+This creates the `magic_link_tokens` table. The migration is loaded automatically when auth is enabled. To publish it for customization:
+
+```bash
+php artisan vendor:publish --tag=ln-starter-migrations
+```
+
+**4. Exclude auth_token from cookie encryption**
+
+In `bootstrap/app.php`:
+
+```php
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->encryptCookies(except: ['auth_token']);
+})
+```
+
+**5. Prepend the cookie-to-header middleware**
+
+In `bootstrap/app.php`:
+
+```php
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->prepend(
+        \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class
+    );
+})
+```
+
+### Routes registered
+
+| Method | URI | Name | Purpose |
+|--------|-----|------|---------|
+| GET | `/login` | `login` | Login form |
+| POST | `/auth/magic-link` | `login.magic-link` | Send magic link email |
+| GET | `/magic/wait` | `magic.wait` | "Check your email" polling page |
+| GET | `/magic/status` | `magic.status` | Poll endpoint (JSON) |
+| GET | `/magic/verify/{token}` | `magic.verify` | Verify token from email |
+| POST | `/logout` | `logout` | Revoke token, redirect to login |
+
+### Flow
+
+```
+1. User visits /login → enters email → POST /auth/magic-link
+2. Package creates user (if new), generates token, sends email
+3. Redirects to /magic/wait → JS polls /magic/status every 2s
+4. User clicks email link → GET /magic/verify/{token} → marks token approved
+5. Next poll detects approval → issues Sanctum token → sets cookie → redirects to home
+```
+
+### Customizing views
+
+Publish and override:
+
+```bash
+php artisan vendor:publish --tag=ln-starter-views
+```
+
+Views are published to `resources/views/vendor/ln-starter/`. Edit:
+- `auth/login.blade.php` — login form
+- `auth/magic_wait.blade.php` — polling page
+- `auth/magic_success.blade.php` — verification success
+- `auth/magic_error.blade.php` — verification error
+- `emails/magic-link.blade.php` — email template
+- `layouts/_auth.blade.php` — auth page layout
+
+Or point `config('ln-starter.auth.layout')` to your own layout.
+
+### Translating
+
+All user-facing strings use `__()`. Publish Laravel lang files and translate as needed.
 
 ## Project-specific extensions
 
