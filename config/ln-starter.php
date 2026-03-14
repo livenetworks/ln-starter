@@ -39,4 +39,26 @@ return [
         'disable-csrf'  => \LiveNetworks\LnStarter\Http\Middleware\DisableCsrf::class,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Auth Module (Passwordless / Magic Link)
+    |--------------------------------------------------------------------------
+    |
+    | Enable the built-in passwordless authentication flow.
+    | When enabled, the package registers login/logout routes,
+    | loads the magic_link_tokens migration, and provides auth views.
+    |
+    | Your User model must use Laravel\Sanctum\HasApiTokens and have
+    | 'email' in $fillable.
+    |
+    */
+    'auth' => [
+        'enabled'      => false,
+        'user_model'   => 'App\\Models\\User',
+        'token_expiry' => 15, // minutes
+        'home_route'   => 'home',
+        'mail_subject' => 'Magic Link Login',
+        'layout'       => 'ln-starter::layouts._auth',
+    ],
+
 ];

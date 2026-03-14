@@ -1,0 +1,146 @@
+<?php
+
+namespace LiveNetworks\LnStarter\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use LiveNetworks\LnStarter\DTOs\Message;
+use LiveNetworks\LnStarter\Http\LNController;
+use LiveNetworks\LnStarter\Mail\MagicLinkMail;
+use LiveNetworks\LnStarter\Models\MagicLinkToken;
+
+class AuthController extends LNController
+{
+    /**
+     * Send a magic link to the given email address.
+     */
+    public function magicLink(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'email' => 'required|email',
+            ]);
+
+            $userModel = config('ln-starter.auth.user_model', 'App\\Models\\User');
+            $user = $userModel::firstOrCreate(
+                ['email' => $validated['email']]
+            );
+
+            $expiry = config('ln-starter.auth.token_expiry', 15);
+
+            $token = MagicLinkToken::create([
+                'user_id'    => $user->id,
+                'token'      => Str::random(64),
+                'expires_at' => now()->addMinutes($expiry),
+            ]);
+
+            Mail::to($user->email)->send(new MagicLinkMail($user, $token));
+
+            Session::put('magic_link_user_id', $user->id);
+            Session::put('magic_link_token_id', $token->id);
+
+            return redirect()->route('magic.wait');
+
+        } catch (ValidationException $e) {
+            $message = new Message('error', __('Validation Error'), __('Validation error'), $e->errors());
+            return $this->respondWith(null, $message);
+        }
+    }
+
+    /**
+     * Show the "check your email" wait page.
+     */
+    public function magicWait()
+    {
+        return view('ln-starter::auth.magic_wait');
+    }
+
+    /**
+     * Poll endpoint — returns JSON with approval status.
+     */
+    public function magicStatus(Request $request)
+    {
+        $userId  = Session::get('magic_link_user_id');
+        $tokenId = Session::get('magic_link_token_id');
+
+        if (!$userId || !$tokenId) {
+            return response()->json(['ok' => false, 'error' => 'No session']);
+        }
+
+        $token = MagicLinkToken::find($tokenId);
+
+        if (!$token || $token->isExpired()) {
+            Session::forget(['magic_link_user_id', 'magic_link_token_id']);
+            return response()->json(['ok' => false, 'error' => 'Token expired']);
+        }
+
+        if ($token->approved) {
+            $user = $token->user;
+            $sanctumToken = $user->createToken('auth_token')->plainTextToken;
+
+            Session::forget(['magic_link_user_id', 'magic_link_token_id']);
+
+            $homeRoute = config('ln-starter.auth.home_route', 'home');
+
+            $response = response()->json([
+                'ok'       => true,
+                'redirect' => route($homeRoute),
+                'token'    => $sanctumToken,
+                'user'     => [
+                    'id'    => $user->id,
+                    'email' => $user->email,
+                ],
+            ]);
+
+            $response->cookie('auth_token', $sanctumToken, 0, '/', null, false, false);
+
+            return $response;
+        }
+
+        return response()->json(['ok' => false, 'error' => 'Token not approved yet']);
+    }
+
+    /**
+     * Verify the magic link token (called when user clicks the email link).
+     */
+    public function magicVerify($token)
+    {
+        $magicToken = MagicLinkToken::where('token', $token)->first();
+
+        if (!$magicToken || !$magicToken->isValid()) {
+            return view('ln-starter::auth.magic_error', [
+                'message' => __('Link is invalid or expired.'),
+            ]);
+        }
+
+        $magicToken->update([
+            'approved'    => true,
+            'approved_at' => now(),
+        ]);
+
+        return view('ln-starter::auth.magic_success');
+    }
+
+    /**
+     * Revoke the current Sanctum token and redirect to login.
+     */
+    public function logout(Request $request)
+    {
+        try {
+            $request->user()->currentAccessToken()->delete();
+
+            $message = new Message('success', __('Success'), __('Logout successful'));
+
+            return redirect()->route('login')
+                ->withCookie(cookie()->forget('auth_token'))
+                ->with('message', $message);
+
+        } catch (\Exception $e) {
+            $message = new Message('error', __('Logout failed'), $e->getMessage());
+            return redirect()->route('login')->with('message', $message);
+        }
+    }
+}

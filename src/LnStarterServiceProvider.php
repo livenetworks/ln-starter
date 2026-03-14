@@ -2,6 +2,7 @@
 
 namespace LiveNetworks\LnStarter;
 
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Routing\Router;
 
@@ -18,6 +19,8 @@ class LnStarterServiceProvider extends ServiceProvider
     {
         $this->registerMiddlewareAliases();
         $this->registerViews();
+        $this->registerAuthRoutes();
+        $this->registerMigrations();
         $this->registerPublishing();
     }
 
@@ -37,6 +40,25 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->loadViewsFrom(
             __DIR__ . '/../resources/views', 'ln-starter'
         );
+    }
+
+    protected function registerAuthRoutes(): void
+    {
+        if (!config('ln-starter.auth.enabled', false)) {
+            return;
+        }
+
+        Route::middleware('web')
+            ->group(__DIR__ . '/../routes/auth.php');
+    }
+
+    protected function registerMigrations(): void
+    {
+        if (!config('ln-starter.auth.enabled', false)) {
+            return;
+        }
+
+        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
     }
 
     protected function registerPublishing(): void
@@ -64,5 +86,10 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__ . '/../skills/ln-starter' => base_path('.claude/skills/ln-starter'),
         ], 'ln-starter-skill');
+
+        // Migrations
+        $this->publishes([
+            __DIR__ . '/../database/migrations' => database_path('migrations'),
+        ], 'ln-starter-migrations');
     }
 }
