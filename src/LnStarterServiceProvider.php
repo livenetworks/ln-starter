@@ -17,11 +17,18 @@ class LnStarterServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->registerExceptionHandling();
         $this->registerMiddlewareAliases();
         $this->registerViews();
         $this->registerAuthRoutes();
         $this->registerMigrations();
         $this->registerPublishing();
+    }
+
+    protected function registerExceptionHandling(): void
+    {
+        $handler = $this->app->make(\Illuminate\Contracts\Debug\ExceptionHandler::class);
+        \LiveNetworks\LnStarter\Exceptions\AuthExceptionHandler::register($handler);
     }
 
     protected function registerMiddlewareAliases(): void

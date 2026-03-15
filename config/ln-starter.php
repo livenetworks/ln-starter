@@ -61,4 +61,17 @@ return [
         'layout'       => 'layouts._auth',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Exception Handling
+    |--------------------------------------------------------------------------
+    |
+    | Named route used for redirecting unauthenticated web requests (401).
+    | Override if your login route has a different name.
+    |
+    */
+    'exceptions' => [
+        'login_route' => 'login',
+    ],
+
 ];
