@@ -2,15 +2,16 @@
 
 namespace LiveNetworks\LnStarter\Exceptions;
 
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use LiveNetworks\LnStarter\DTOs\Message;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class AuthExceptionHandler
 {
     public static function register(ExceptionHandler $handler): void
     {
+        // 401 — unauthenticated
         $handler->renderable(function (AuthenticationException $e, $request) {
             if ($request->wantsJson() || $request->ajax()) {
                 $message = new Message('error', __('Unauthenticated'), __('Authentication is required to access this resource.'));
@@ -21,16 +22,20 @@ class AuthExceptionHandler
             return redirect()->guest(route($loginRoute));
         });
 
-        $handler->renderable(function (AuthorizationException $e, $request) {
+        // 403 — forbidden
+        // Note: AuthorizationException is converted to HttpException(403) by Laravel's
+        // Handler::prepareException() before renderViaCallbacks() is called, so we
+        // must listen for HttpException with status 403, not AuthorizationException.
+        $handler->renderable(function (HttpException $e, $request) {
+            if ($e->getStatusCode() !== 403) {
+                return null;
+            }
             if ($request->wantsJson() || $request->ajax()) {
                 $message = new Message('error', __('Forbidden'), __('You do not have permission to perform this action.'));
                 return response()->json(['message' => $message, 'content' => null], 403);
             }
-            if (!auth()->check()) {
-                $loginRoute = config('ln-starter.exceptions.login_route', 'login');
-                return redirect()->guest(route($loginRoute));
-            }
-            abort(403);
+            $loginRoute = config('ln-starter.exceptions.login_route', 'login');
+            return redirect()->guest(route($loginRoute));
         });
     }
 }
