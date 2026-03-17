@@ -108,6 +108,11 @@ class LnStarterServiceProvider extends ServiceProvider
             __DIR__ . '/../stubs' => base_path('stubs/ln-starter'),
         ], 'ln-starter-stubs');
 
+        // Users migration stub — publish and rename to a dated migration file
+        $this->publishes([
+            __DIR__ . '/../stubs/create_users_table.stub' => database_path('migrations/' . date('Y_m_d_His') . '_create_users_table.php'),
+        ], 'ln-starter-users-migration');
+
         // Claude AI skill
         $this->publishes([
             __DIR__ . '/../skills/ln-starter' => base_path('.claude/skills/ln-starter'),

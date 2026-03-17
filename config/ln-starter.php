@@ -37,6 +37,7 @@ return [
         'sanctum.token' => \LiveNetworks\LnStarter\Http\Middleware\AuthenticateWithSanctum::class,
         'cookie.auth'   => \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class,
         'disable-csrf'  => \LiveNetworks\LnStarter\Http\Middleware\DisableCsrf::class,
+        'ln.auth'       => \LiveNetworks\LnStarter\Http\Middleware\RequireAuthentication::class,
     ],
 
     /*
