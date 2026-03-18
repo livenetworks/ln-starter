@@ -21,6 +21,7 @@ class InstallCommand extends Command
             ['tag' => 'ln-starter-views',      'label' => 'Auth views'],
             ['tag' => 'ln-starter-migrations', 'label' => 'Migrations (magic_link_tokens, personal_access_tokens)'],
             ['tag' => 'ln-starter-stubs',      'label' => 'Generator stubs'],
+            ['tag' => 'ln-starter-auth-css',   'label' => 'Auth SCSS'],
         ];
 
         foreach ($steps as $step) {
@@ -33,11 +34,50 @@ class InstallCommand extends Command
         }
 
         $this->publishUsersMigration();
+        $this->publishUserModel();
+        $this->injectViteEntry('resources/scss/auth.scss');
 
         $this->newLine();
         $this->components->info('LN-Starter installed successfully.');
 
         return self::SUCCESS;
+    }
+
+    protected function injectViteEntry(string $entry): void
+    {
+        $viteConfig = base_path('vite.config.js');
+
+        if (!file_exists($viteConfig)) {
+            $this->components->warn('vite.config.js not found — add ' . $entry . ' to Vite input manually.');
+            return;
+        }
+
+        $contents = file_get_contents($viteConfig);
+
+        if (str_contains($contents, $entry)) {
+            $this->components->info('Vite entry already present: ' . $entry);
+            return;
+        }
+
+        // Insert before the first existing entry in the input array
+        $contents = preg_replace(
+            "/input:\s*\[/",
+            "input: [\n            '" . $entry . "',",
+            $contents,
+            limit: 1
+        );
+
+        file_put_contents($viteConfig, $contents);
+        $this->components->info('Vite entry added: ' . $entry);
+    }
+
+    protected function publishUserModel(): void
+    {
+        $stub   = __DIR__ . '/../../stubs/User.stub';
+        $target = app_path('Models/User.php');
+
+        copy($stub, $target);
+        $this->components->info('User model replaced (HasApiTokens + first_name/last_name).');
     }
 
     protected function publishUsersMigration(): void
