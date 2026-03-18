@@ -25,7 +25,7 @@
 			@yield('footer')
 		</footer>
 
-		<x-ln.toast class="ln-toast ln-toast--top-right" :timeout="6000" :max="5" />
+		<x-ln.toast />
 
 		@stack('scripts')
 	</body>

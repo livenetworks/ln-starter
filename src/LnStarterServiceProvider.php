@@ -48,6 +48,11 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->loadViewsFrom(
             __DIR__ . '/../resources/views', 'ln-starter'
         );
+
+        $this->loadViewComponentsAs('ln', [
+            \LiveNetworks\LnStarter\View\Components\Toast::class,
+            \LiveNetworks\LnStarter\View\Components\Modal::class,
+        ]);
     }
 
     protected function registerAuthRoutes(): void
