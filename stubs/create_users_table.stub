@@ -4,17 +4,10 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-// LN-STARTER: This migration replaces Laravel's default create_users_table.
-// Before publishing, delete the existing users migration from your project:
-//   database/migrations/0001_01_01_000000_create_users_table.php  (Laravel 11+)
-//   database/migrations/2014_10_12_000000_create_users_table.php  (Laravel 10)
-
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::dropIfExists('users');
-
         Schema::create('users', function (Blueprint $table) {
             $table->id();
             $table->string('first_name');
@@ -23,10 +16,20 @@ return new class extends Migration
             $table->timestamp('email_verified_at')->nullable();
             $table->timestamps();
         });
+
+        Schema::create('sessions', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
     }
 
     public function down(): void
     {
+        Schema::dropIfExists('sessions');
         Schema::dropIfExists('users');
     }
 };
