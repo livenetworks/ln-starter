@@ -2,6 +2,7 @@
 
 namespace LiveNetworks\LnStarter;
 
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Routing\Router;
@@ -49,10 +50,8 @@ class LnStarterServiceProvider extends ServiceProvider
             __DIR__ . '/../resources/views', 'ln-starter'
         );
 
-        $this->loadViewComponentsAs('ln', [
-            \LiveNetworks\LnStarter\View\Components\Toast::class,
-            \LiveNetworks\LnStarter\View\Components\Modal::class,
-        ]);
+        Blade::component('ln.toast', \LiveNetworks\LnStarter\View\Components\Toast::class);
+        Blade::component('ln.modal', \LiveNetworks\LnStarter\View\Components\Modal::class);
     }
 
     protected function registerAuthRoutes(): void
