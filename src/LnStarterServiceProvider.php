@@ -23,6 +23,7 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->registerAuthRoutes();
         $this->registerMigrations();
         $this->registerPublishing();
+        $this->registerCommands();
     }
 
     protected function registerExceptionHandling(): void
@@ -117,5 +118,14 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__ . '/../skills/ln-starter' => base_path('.claude/skills/ln-starter'),
         ], 'ln-starter-skill');
+    }
+
+    protected function registerCommands(): void
+    {
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \LiveNetworks\LnStarter\Console\InstallCommand::class,
+            ]);
+        }
     }
 }
