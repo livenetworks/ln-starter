@@ -34,8 +34,13 @@ class AuthExceptionHandler
                 $message = new Message('error', __('Forbidden'), __('You do not have permission to perform this action.'));
                 return response()->json(['message' => $message, 'content' => null], 403);
             }
-            $loginRoute = config('ln-starter.exceptions.login_route', 'login');
-            return redirect()->guest(route($loginRoute));
+
+            // Show 403 view if it exists, otherwise fall back to Laravel's default
+            if (view()->exists('errors.403')) {
+                return response()->view('errors.403', [], 403);
+            }
+
+            return null;
         });
     }
 }

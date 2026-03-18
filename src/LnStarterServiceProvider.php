@@ -66,11 +66,13 @@ class LnStarterServiceProvider extends ServiceProvider
 
     protected function registerMigrations(): void
     {
-        if (!config('ln-starter.auth.enabled', false)) {
-            return;
-        }
-
+        // Sanctum's personal_access_tokens — always needed
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+
+        // Magic link tokens — only when auth module is enabled
+        if (config('ln-starter.auth.enabled', false)) {
+            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/auth');
+        }
     }
 
     protected function registerPublishing(): void
@@ -105,7 +107,8 @@ class LnStarterServiceProvider extends ServiceProvider
 
         // Migrations
         $this->publishes([
-            __DIR__ . '/../database/migrations' => database_path('migrations'),
+            __DIR__ . '/../database/migrations/create_personal_access_tokens_table.php' => database_path('migrations/create_personal_access_tokens_table.php'),
+            __DIR__ . '/../database/migrations/auth/create_magic_link_tokens_table.php' => database_path('migrations/create_magic_link_tokens_table.php'),
         ], 'ln-starter-migrations');
 
         // Stubs
@@ -124,6 +127,7 @@ class LnStarterServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \LiveNetworks\LnStarter\Console\InstallCommand::class,
+                \LiveNetworks\LnStarter\Console\CleanupMagicLinkTokensCommand::class,
             ]);
         }
     }

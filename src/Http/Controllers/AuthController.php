@@ -4,6 +4,7 @@ namespace LiveNetworks\LnStarter\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +20,17 @@ class AuthController extends LNController
      */
     public function magicLink(Request $request)
     {
+        $key = 'magic-link:' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            $seconds = RateLimiter::availableIn($key);
+            return back()->withErrors([
+                'email' => __('Too many requests. Please try again in :seconds seconds.', ['seconds' => $seconds]),
+            ]);
+        }
+
+        RateLimiter::hit($key, 300); // 5 minute decay
+
         try {
             $validated = $request->validate([
                 'email' => 'required|email',
@@ -37,7 +49,13 @@ class AuthController extends LNController
                 'expires_at' => now()->addMinutes($expiry),
             ]);
 
-            Mail::to($user->email)->send(new MagicLinkMail($user, $token));
+            try {
+                Mail::to($user->email)->send(new MagicLinkMail($user, $token));
+            } catch (\Exception $e) {
+                $token->delete();
+                $message = new Message('error', __('Email Error'), __('Failed to send magic link. Please try again.'));
+                return back()->with('message', $message)->withInput();
+            }
 
             Session::put('magic_link_user_id', $user->id);
             Session::put('magic_link_token_id', $token->id);
@@ -95,7 +113,7 @@ class AuthController extends LNController
                 ],
             ]);
 
-            $response->cookie('auth_token', $sanctumToken, 0, '/', null, false, false);
+            $response->cookie('auth_token', $sanctumToken, 0, '/', null, false, true);
 
             return $response;
         }
@@ -129,6 +147,11 @@ class AuthController extends LNController
      */
     public function logout(Request $request)
     {
+        if (!$request->user()) {
+            return redirect()->route('login')
+                ->withCookie(cookie()->forget('auth_token'));
+        }
+
         try {
             $request->user()->currentAccessToken()->delete();
 
@@ -140,7 +163,9 @@ class AuthController extends LNController
 
         } catch (\Exception $e) {
             $message = new Message('error', __('Logout failed'), $e->getMessage());
-            return redirect()->route('login')->with('message', $message);
+            return redirect()->route('login')
+                ->withCookie(cookie()->forget('auth_token'))
+                ->with('message', $message);
         }
     }
 }

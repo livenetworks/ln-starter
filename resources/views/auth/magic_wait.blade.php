@@ -14,7 +14,7 @@
 		<div id="state" class="auth-status__state">{{ __('Waiting for confirmation') }}…</div>
 
 		<div id="timeout-message" class="auth-status__timeout">
-			<p>{{ __('Time expired. The link is valid for 15 more minutes.') }}</p>
+			<p>{{ __('Time expired. The link is valid for :minutes minutes.', ['minutes' => config('ln-starter.auth.token_expiry', 15)]) }}</p>
 			<a href="{{ route('login') }}">{{ __('Back to login') }}</a>
 		</div>
 	</div>
@@ -24,7 +24,7 @@
 	<script>
 		const stateEl = document.getElementById('state');
 		const timeoutMsg = document.getElementById('timeout-message');
-		const MAX_ATTEMPTS = 150; // 5 minutes (150 × 2 seconds)
+		const MAX_ATTEMPTS = {{ config('ln-starter.auth.token_expiry', 15) * 30 }}; // token_expiry × 30 polls per minute (2s interval)
 		let attempts = 0;
 
 		const poll = async () => {
@@ -50,9 +50,6 @@
 
 				if (j.ok) {
 					stateEl.textContent = '{{ __('Success! Redirecting') }}…';
-					if (j.token) {
-						sessionStorage.setItem('auth_token', j.token);
-					}
 					window.location.href = j.redirect || '/';
 					return;
 				}

@@ -100,8 +100,13 @@ class InstallCommand extends Command
         $stub   = __DIR__ . '/../../stubs/User.stub';
         $target = app_path('Models/User.php');
 
+        if (file_exists($target) && !$this->option('force')) {
+            $this->components->warn('User model already exists — use --force to overwrite.');
+            return;
+        }
+
         copy($stub, $target);
-        $this->components->info('User model replaced (HasApiTokens + first_name/last_name).');
+        $this->components->info('User model published (HasApiTokens + first_name/last_name).');
     }
 
     protected function publishUsersMigration(): void
@@ -125,9 +130,10 @@ class InstallCommand extends Command
             }
         }
 
-        // Also remove any previously published ln-starter users migration (different timestamp)
+        // Remove any previously published ln-starter users migration (different timestamp)
         foreach (glob($migrationsPath . '/*_create_users_table.php') as $existing) {
             if (!in_array(basename($existing), $defaults)) {
+                $this->components->warn('Removing old migration: ' . basename($existing));
                 unlink($existing);
             }
         }

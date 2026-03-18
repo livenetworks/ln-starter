@@ -12,7 +12,7 @@ class RequireAuthentication
      * Enforce authentication.
      *
      * - Browser request (non-AJAX): redirect to login route.
-     * - AJAX / API request:         return 403 JSON response.
+     * - AJAX / API request:         return 401 JSON response.
      */
     public function handle(Request $request, Closure $next): Response
     {
@@ -21,7 +21,7 @@ class RequireAuthentication
         }
 
         if ($this->expectsJson($request)) {
-            return response()->json(['message' => 'Unauthenticated.'], 403);
+            return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
         $loginRoute = config('ln-starter.exceptions.login_route', 'login');
