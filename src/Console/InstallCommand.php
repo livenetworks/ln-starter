@@ -36,9 +36,11 @@ class InstallCommand extends Command
         $this->publishUsersMigration();
         $this->publishUserModel();
         $this->injectViteEntry('resources/scss/auth.scss');
+        $this->checkNpmDependencies(['sass', 'ln-acme']);
 
         $this->newLine();
         $this->components->info('LN-Starter installed successfully.');
+        $this->components->warn('Run `npm run build` or `npm run dev` to compile the new auth styles.');
 
         return self::SUCCESS;
     }
@@ -69,6 +71,28 @@ class InstallCommand extends Command
 
         file_put_contents($viteConfig, $contents);
         $this->components->info('Vite entry added: ' . $entry);
+    }
+
+    protected function checkNpmDependencies(array $packages): void
+    {
+        $missing = [];
+
+        foreach ($packages as $package) {
+            if (!is_dir(base_path('node_modules/' . $package))) {
+                $missing[] = $package;
+            }
+        }
+
+        if (empty($missing)) {
+            return;
+        }
+
+        $this->components->warn(
+            'Missing npm dependencies: ' . implode(', ', $missing)
+        );
+        $this->components->warn(
+            'Run: npm install ' . implode(' ', $missing) . ' --save-dev'
+        );
     }
 
     protected function publishUserModel(): void
