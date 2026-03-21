@@ -4,7 +4,9 @@
       "Bash(grep -E \"\\\\.\\(php|blade|js|sql\\)$\")",
       "Bash(xargs grep:*)",
       "Bash(php /c/laragon/www/AuditBase/artisan route:list --name=login)",
-      "Bash(find c:/laragon/www -name docuflow* -type d)"
+      "Bash(find c:/laragon/www -name docuflow* -type d)",
+      "Bash(git config:*)",
+      "Bash(composer validate:*)"
     ]
   }
 }
