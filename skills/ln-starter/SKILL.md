@@ -182,14 +182,14 @@ The package provides two auto-registered Blade components. No publish needed.
 
 #### Toast — `<x-ln.toast />`
 
-Place **once** in your app layout, before `</body>`. It reads `session('ok')` for success and `$errors` for validation errors.
+Place **once** in your app layout, before `</body>`. Renders `data-ln-toast-item` elements that `ln-acme` JS hydrates into styled cards.
 
 ```blade
 {{-- Already included in _app.scaffold and _auth layouts --}}
 <x-ln.toast />
 
-{{-- Custom position / timing --}}
-<x-ln.toast class="ln-toast ln-toast--bottom-right" :timeout="4000" :max="3" />
+{{-- Custom timing --}}
+<x-ln.toast :timeout="4000" :max="3" />
 ```
 
 Flash success messages from controllers:
@@ -198,11 +198,17 @@ Flash success messages from controllers:
 return redirect()->route('members.index')->with('ok', 'Member created.');
 ```
 
+Parameters: `id` (default `ln-toast-container`), `timeout` (default `6000`), `max` (default `5`).
+
 #### Modal — `<x-ln.modal />`
 
-Renders a modal dialog wrapping a `<form>` with `data-ln-ajax` (AJAX submission).
+Renders a modal with `<form>` as the content root. Structure follows `ln-acme` convention: `.ln-modal > form > header/main/footer` — no BEM classes.
 
 ```blade
+{{-- Trigger --}}
+<button data-ln-modal="delete-member">Delete</button>
+
+{{-- Modal --}}
 <x-ln.modal id="delete-member" title="Delete member?" submitText="Delete"
     action="{{ route('members.destroy', $member) }}" method="POST">
     @method('DELETE')

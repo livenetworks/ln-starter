@@ -28,7 +28,7 @@
 			&copy; {{ date('Y') }} Powered by <a href="https://livenetworks.mk" target="_blank" rel="noopener noreferrer">Live Networks</a>
 		</footer>
 
-		<x-ln.toast class="ln-toast ln-toast--top-right" :timeout="6000" :max="5" />
+		<x-ln.toast />
 
 		@stack('scripts')
 	</body>

@@ -9,7 +9,6 @@ class Toast extends Component
 {
     public function __construct(
         public string $id      = 'ln-toast-container',
-        public string $class   = 'ln-toast ln-toast--top-right',
         public int    $timeout = 6000,
         public int    $max     = 5,
     ) {}

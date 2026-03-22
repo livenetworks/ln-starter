@@ -27,6 +27,7 @@
 
 		<x-ln.toast />
 
+
 		@stack('scripts')
 	</body>
 </html>
