@@ -176,6 +176,44 @@ class AuditLog extends LNWriteModel
 
 Stack order for dual-mode routes: `cookie.auth` → `sanctum.token` → (web middleware group handles CSRF)
 
+### 11. Blade components — Toast and Modal
+
+The package provides two auto-registered Blade components. No publish needed.
+
+#### Toast — `<x-ln.toast />`
+
+Place **once** in your app layout, before `</body>`. It reads `session('ok')` for success and `$errors` for validation errors.
+
+```blade
+{{-- Already included in _app.scaffold and _auth layouts --}}
+<x-ln.toast />
+
+{{-- Custom position / timing --}}
+<x-ln.toast class="ln-toast ln-toast--bottom-right" :timeout="4000" :max="3" />
+```
+
+Flash success messages from controllers:
+
+```php
+return redirect()->route('members.index')->with('ok', 'Member created.');
+```
+
+#### Modal — `<x-ln.modal />`
+
+Renders a modal dialog wrapping a `<form>` with `data-ln-ajax` (AJAX submission).
+
+```blade
+<x-ln.modal id="delete-member" title="Delete member?" submitText="Delete"
+    action="{{ route('members.destroy', $member) }}" method="POST">
+    @method('DELETE')
+    <p>{{ __('This action cannot be undone.') }}</p>
+</x-ln.modal>
+```
+
+Parameters: `id`, `title`, `submitText` (default `Submit`), `action` (null = no form action), `method` (POST or GET — use `@method()` for PUT/PATCH/DELETE).
+
+NEVER create custom modal or toast markup. Always use these components.
+
 ## Scaffolding a new feature
 
 When asked to create a new CRUD or feature, follow this order:

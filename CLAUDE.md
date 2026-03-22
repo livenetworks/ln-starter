@@ -18,11 +18,13 @@ LN-Starter is a Laravel foundation package by Live Networks. It provides base cl
 
 5. **Message DTO**: All controller responses can carry a `Message` object with `type`, `title`, `body`, and `data`.
 
-6. **CSRF strategy**: Authenticated users skip CSRF. Routes can opt out with `disable-csrf` middleware marker.
+6. **Blade components**: `<x-ln.toast />` renders session flash messages (success/errors) as dismissible toasts. `<x-ln.modal />` renders a modal dialog with form wrapper and AJAX submission. Both are auto-registered — no publish needed. See `docs/components.md`.
 
-7. **Cookie-to-header auth bridge**: `AuthorizationFromCookie` reads `auth_token` from cookies and sets the `Authorization` header for Sanctum.
+7. **CSRF strategy**: Authenticated users skip CSRF. Routes can opt out with `disable-csrf` middleware marker.
 
-8. **Passwordless auth module**: Opt-in via `config('ln-starter.auth.enabled')`. Provides magic link login flow — `AuthController`, `MagicLinkToken` model, `MagicLinkMail`, views, routes, and migration. User model is configurable. See `docs/auth.md`.
+8. **Cookie-to-header auth bridge**: `AuthorizationFromCookie` reads `auth_token` from cookies and sets the `Authorization` header for Sanctum.
+
+9. **Passwordless auth module**: Opt-in via `config('ln-starter.auth.enabled')`. Provides magic link login flow — `AuthController`, `MagicLinkToken` model, `MagicLinkMail`, views, routes, and migration. User model is configurable. See `docs/auth.md`.
 
 ## When generating code for projects using this package
 
@@ -31,6 +33,7 @@ LN-Starter is a Laravel foundation package by Live Networks. It provides base cl
 - Read models extend `LNReadModel`, write models extend `LNWriteModel`
 - View composers extend `LNViewComposer`, implement `enrich()`
 - Use `new Message('success', 'Title', 'Body')` for response messages
+- Place `<x-ln.toast />` once in the app layout (before `</body>`). Use `<x-ln.modal />` for confirmation dialogs and inline forms
 - Register project-specific middleware separately — RBAC is NOT part of this package
 - The package namespace is `LiveNetworks\LnStarter`
 
