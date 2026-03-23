@@ -6,7 +6,8 @@
       "Bash(php /c/laragon/www/AuditBase/artisan route:list --name=login)",
       "Bash(find c:/laragon/www -name docuflow* -type d)",
       "Bash(git config:*)",
-      "Bash(composer validate:*)"
+      "Bash(composer validate:*)",
+      "Bash(grep -l \"ln-toast\\\\|ln-modal\" /c/laragon/www/ln-acme-temp/demo/admin/*.html)"
     ]
   }
 }
