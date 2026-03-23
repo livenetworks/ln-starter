@@ -47,7 +47,9 @@ class AuthExceptionHandler
         // 422 — validation error
         $handler->renderable(function (ValidationException $e, $request) {
             if ($request->wantsJson() || $request->ajax()) {
-                $message = new Message('error', __('Validation Error'), $e->getMessage(), ['errors' => $e->errors()]);
+                $errors = $e->errors();
+                $body = '<ul>' . collect($errors)->flatten()->map(fn ($m) => '<li>' . e($m) . '</li>')->implode('') . '</ul>';
+                $message = new Message('error', __('Validation Error'), $body, ['errors' => $errors]);
                 return response()->json(['message' => $message, 'content' => null], 422);
             }
 
