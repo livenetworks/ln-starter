@@ -124,8 +124,9 @@ class AuthController extends LNController
     /**
      * Verify the magic link token (called when user clicks the email link).
      */
-    public function magicVerify($token)
+    public function magicVerify()
     {
+        $token = request()->route('token');
         $magicToken = MagicLinkToken::where('token', $token)->first();
 
         if (!$magicToken || !$magicToken->isValid()) {
