@@ -38,6 +38,7 @@ return [
         'cookie.auth'   => \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class,
         'disable-csrf'  => \LiveNetworks\LnStarter\Http\Middleware\DisableCsrf::class,
         'ln.auth'       => \LiveNetworks\LnStarter\Http\Middleware\RequireAuthentication::class,
+        'ln.locale'     => \LiveNetworks\LnStarter\Http\Middleware\SetLocale::class,
     ],
 
     /*
