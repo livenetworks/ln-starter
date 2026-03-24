@@ -4,6 +4,7 @@ namespace LiveNetworks\LnStarter\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\Response;
 
 class SetLocale
@@ -57,6 +58,9 @@ class SetLocale
         }
 
         app()->setLocale($locale);
+
+        // Set default route parameter so route() helpers auto-inject locale
+        URL::defaults(['locale' => $locale]);
 
         // Share locale with all views
         view()->share('currentLocale', $locale);
