@@ -37,9 +37,19 @@ class LnStarterServiceProvider extends ServiceProvider
     {
         $router = $this->app->make(Router::class);
 
-        $aliases = config('ln-starter.middleware_aliases', []);
+        // Core aliases — always registered, regardless of published config
+        $core = [
+            'sanctum.token' => \LiveNetworks\LnStarter\Http\Middleware\AuthenticateWithSanctum::class,
+            'cookie.auth'   => \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class,
+            'disable-csrf'  => \LiveNetworks\LnStarter\Http\Middleware\DisableCsrf::class,
+            'ln.auth'       => \LiveNetworks\LnStarter\Http\Middleware\RequireAuthentication::class,
+            'ln.locale'     => \LiveNetworks\LnStarter\Http\Middleware\SetLocale::class,
+        ];
 
-        foreach ($aliases as $alias => $class) {
+        // Project config can add extra aliases or override core ones
+        $custom = config('ln-starter.middleware_aliases', []);
+
+        foreach (array_merge($core, $custom) as $alias => $class) {
             $router->aliasMiddleware($alias, $class);
         }
     }
