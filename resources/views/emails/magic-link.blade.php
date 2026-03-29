@@ -89,7 +89,7 @@
 		</div>
 
 		<div class="expiry">
-			<strong>{{ __('Important:') }}</strong> {{ __('This link expires at :time and can only be used once.', ['time' => $expiresAt]) }}
+			<strong>{{ __('Important:') }}</strong> {{ __('This link expires in :minutes minutes and can only be used once.', ['minutes' => $expiresIn]) }}
 		</div>
 
 		<div class="alternative-link">

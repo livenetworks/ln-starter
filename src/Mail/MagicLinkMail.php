@@ -34,7 +34,7 @@ class MagicLinkMail extends Mailable
                 'user'      => $this->user,
                 'token'     => $this->token,
                 'link'      => route('magic.verify', ['token' => $this->token->token]),
-                'expiresAt' => $this->token->expires_at->format('d.m.Y H:i'),
+                'expiresIn' => $this->token->expires_at->diffInMinutes(now()),
             ],
         );
     }

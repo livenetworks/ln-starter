@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use LiveNetworks\LnStarter\DTOs\Message;
@@ -15,6 +16,18 @@ use LiveNetworks\LnStarter\Models\MagicLinkToken;
 
 class AuthController extends LNController
 {
+    /**
+     * Restore locale URL defaults from session.
+     *
+     * Auth routes run outside the ln.locale middleware, so URL::defaults
+     * is not set. Read the locale persisted by SetLocale and apply it
+     * so route() helpers can generate localized URLs (e.g. home).
+     */
+    protected function restoreLocaleDefaults(): void
+    {
+        $locale = Session::get('locale', config('app.locale'));
+        URL::defaults(['locale' => $locale]);
+    }
     /**
      * Send a magic link to the given email address.
      */
@@ -81,6 +94,8 @@ class AuthController extends LNController
      */
     public function magicStatus(Request $request)
     {
+        $this->restoreLocaleDefaults();
+
         $userId  = Session::get('magic_link_user_id');
         $tokenId = Session::get('magic_link_token_id');
 

@@ -59,6 +59,9 @@ class SetLocale
 
         app()->setLocale($locale);
 
+        // Persist to session so non-localized routes (e.g. auth) can read it
+        session(['locale' => $locale]);
+
         // Set default route parameter so route() helpers auto-inject locale
         URL::defaults(['locale' => $locale]);
 
