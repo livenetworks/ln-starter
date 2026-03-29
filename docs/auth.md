@@ -151,6 +151,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         │  → JS stores token in sessionStorage   │
         │  → Redirects to home                   │
         └───────────────────────────────────────┘
+
+        If token expires (server or client timeout)...
+        ┌───────────────────────────────────────┐
+        │  Server returns "Token expired" or     │
+        │  client reaches MAX_ATTEMPTS           │
+        │  → Shows timeout message               │
+        │  → Auto-redirects to /login after 3s   │
+        └───────────────────────────────────────┘
 ```
 
 ## Routes
@@ -226,7 +234,7 @@ The email subject is also translatable — set `auth.mail_subject` to the key, a
 
 ## Security Notes
 
-- **Token validity**: Tokens expire after `token_expiry` minutes (default 15) and can only be used once
+- **Token validity**: Tokens expire after `token_expiry` minutes (default 15) and can only be used once. The wait page auto-redirects to login when the token expires (server-side detection) or when the polling timeout is reached (client-side)
 - **Two-stage approval**: Token is created as `approved=false`, only set to `true` when the email link is clicked
 - **Session tracking**: The wait page uses session to track which token belongs to which browser session
 - **Cookie auth bridge**: The `auth_token` cookie is unencrypted and non-httpOnly so the client JS can read it. The `AuthorizationFromCookie` middleware converts it to a `Authorization: Bearer` header for Sanctum

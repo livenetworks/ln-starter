@@ -24,15 +24,21 @@
 	<script>
 		const stateEl = document.getElementById('state');
 		const timeoutMsg = document.getElementById('timeout-message');
+		const loginUrl = '{{ route('login') }}';
 		const MAX_ATTEMPTS = {{ config('ln-starter.auth.token_expiry', 15) * 30 }}; // token_expiry × 30 polls per minute (2s interval)
 		let attempts = 0;
+
+		const showTimeout = () => {
+			stateEl.textContent = '{{ __('Waiting time expired.') }}';
+			timeoutMsg.style.display = 'block';
+			setTimeout(() => { window.location.href = loginUrl; }, 3000);
+		};
 
 		const poll = async () => {
 			attempts++;
 
 			if (attempts > MAX_ATTEMPTS) {
-				stateEl.textContent = '{{ __('Waiting time expired.') }}';
-				timeoutMsg.style.display = 'block';
+				showTimeout();
 				return;
 			}
 
@@ -51,6 +57,11 @@
 				if (j.ok) {
 					stateEl.textContent = '{{ __('Success! Redirecting') }}…';
 					window.location.href = j.redirect || '/';
+					return;
+				}
+
+				if (j.error === 'Token expired' || j.error === 'No session') {
+					showTimeout();
 					return;
 				}
 			} catch(e) {
