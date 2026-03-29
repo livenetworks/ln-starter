@@ -16,16 +16,33 @@ Route::middleware(['sanctum.token'])->group(function () {
 });
 ```
 
+Supports an optional `:required` parameter to enforce authentication:
+
+```php
+// Optional — validate if present, don't block
+Route::middleware(['sanctum.token'])->group(function () {
+    Route::get('/api/members', [MemberController::class, 'index']);
+});
+
+// Required — return 401 JSON if not authenticated
+Route::middleware(['sanctum.token:required'])->group(function () {
+    Route::get('/api/me', [ProfileController::class, 'show']);
+});
+```
+
 ### How it works
 
 1. Extracts the bearer token from the `Authorization` header
 2. Looks up the token in Sanctum's `personal_access_tokens` table
 3. If valid and not revoked, sets the authenticated user on the request
-4. If no token or invalid, the request proceeds unauthenticated (no abort — combine with Laravel's `auth` middleware if you need to enforce)
+4. If no token or invalid:
+   - **`sanctum.token`** — the request proceeds unauthenticated (no abort — combine with Laravel's `auth` middleware if you need to enforce)
+   - **`sanctum.token:required`** — returns `{"message": "Unauthenticated."}` with HTTP 401
 
 ### When to use
 
-- API routes that accept Sanctum tokens
+- `sanctum.token` — API routes that accept optional Sanctum tokens
+- `sanctum.token:required` — API routes that must have a valid token (replaces the need to chain Laravel's `auth` middleware)
 - Combine with `cookie.auth` for hybrid cookie/token auth
 
 ## AuthorizationFromCookie
