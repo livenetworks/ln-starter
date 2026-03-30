@@ -171,12 +171,7 @@ class AuthController extends LNController
             'approved_at' => now(),
         ]);
 
-        $user          = $magicToken->user;
-        $sanctumToken  = $user->createToken('auth_token')->plainTextToken;
-        $homeRoute     = config('ln-starter.auth.home_route', 'home');
-
-        return redirect()->route($homeRoute)
-            ->cookie('auth_token', $sanctumToken, 0, '/', null, false, true);
+        return view('ln-starter::auth.magic_success');
     }
 
     /**
