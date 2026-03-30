@@ -11,7 +11,6 @@ Before enabling, ensure your project has:
 1. **Laravel Sanctum** installed and configured
 2. **User model** with `HasApiTokens` trait and `'email'` in `$fillable`
 3. **Mail** configured (SMTP, Mailgun, etc.) — the module sends emails
-4. **ln-acme** installed via npm (peer dependency for auth SCSS)
 
 ## Setup
 
@@ -62,7 +61,7 @@ Build frontend assets:
 npm run build
 ```
 
-The SCSS uses `@use 'ln-acme/scss/config/mixins'` and `ln-acme/scss/config/tokens` — `ln-acme` must be installed via npm.
+The auth SCSS is **fully standalone** — it has no dependency on `ln-acme` or any external package. All styles (custom properties, reset, animations, BEM components) are self-contained in the single file.
 
 ### Step 3: Run migrations
 

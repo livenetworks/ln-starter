@@ -13,20 +13,7 @@
 		@stack('styles')
 	</head>
 	<body class="auth-layout">
-		<header class="auth-header">
-			@yield('logo')
-			<h1 class="auth-header__title">
-				{{ config('app.name') }}
-			</h1>
-		</header>
-
-		<main class="auth-main">
-			@yield('content')
-		</main>
-
-		<footer class="auth-footer">
-			&copy; {{ date('Y') }} Powered by <a href="https://livenetworks.mk" target="_blank" rel="noopener noreferrer">Live Networks</a>
-		</footer>
+		@yield('content')
 
 		<x-ln.toast />
 

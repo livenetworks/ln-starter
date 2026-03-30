@@ -24,7 +24,7 @@ LN-Starter is a Laravel foundation package by Live Networks. It provides base cl
 
 8. **Cookie-to-header auth bridge**: `AuthorizationFromCookie` reads `auth_token` from cookies and sets the `Authorization` header for Sanctum.
 
-9. **Passwordless auth module**: Opt-in via `config('ln-starter.auth.enabled')`. Provides magic link login flow — `AuthController`, `MagicLinkToken` model, `MagicLinkMail`, views, routes, and migration. User model is configurable. See `docs/auth.md`.
+9. **Passwordless auth module**: Opt-in via `config('ln-starter.auth.enabled')`. Provides magic link login flow — `AuthController`, `MagicLinkToken` model, `MagicLinkMail`, views, routes, and migration. User model is configurable. Auth views use **standalone SCSS** (`auth.scss`) with no ln-acme dependency — all styles are self-contained via CSS custom properties and BEM classes. See `docs/auth.md`.
 
 ## When generating code for projects using this package
 

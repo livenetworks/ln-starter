@@ -322,7 +322,7 @@ Then build:
 npm run build
 ```
 
-> **Peer dependency:** `ln-acme` must be installed via npm. The SCSS uses `@use 'ln-acme/scss/config/mixins'` and `ln-acme/scss/config/tokens`.
+> The auth SCSS is **fully standalone** — no `ln-acme` or other npm peer dependency required. All styles (custom properties, reset, animations, BEM components) are self-contained.
 
 **3. User model prerequisites**
 
