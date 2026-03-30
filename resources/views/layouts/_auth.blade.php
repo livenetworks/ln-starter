@@ -12,7 +12,7 @@
 
 		@stack('styles')
 	</head>
-	<body class="antialiased">
+	<body>
 		@yield('content')
 
 		<x-ln.toast />
