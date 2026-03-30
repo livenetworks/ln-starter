@@ -169,7 +169,7 @@ class AuthController extends LNController
         }
 
         try {
-            $request->user()->currentAccessToken()->delete();
+            $request->user()->currentAccessToken()?->delete();
 
             $message = new Message('success', __('Success'), __('Logout successful'));
 

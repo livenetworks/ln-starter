@@ -7,7 +7,12 @@
       "Bash(find c:/laragon/www -name docuflow* -type d)",
       "Bash(git config:*)",
       "Bash(composer validate:*)",
-      "Bash(grep -l \"ln-toast\\\\|ln-modal\" /c/laragon/www/ln-acme-temp/demo/admin/*.html)"
+      "Bash(grep -l \"ln-toast\\\\|ln-modal\" /c/laragon/www/ln-acme-temp/demo/admin/*.html)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(15 minutes\"\\) to avoid timezone confusion.:*)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(gh api:*)"
     ]
   }
 }
