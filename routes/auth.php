@@ -26,8 +26,11 @@ Route::get('/magic/wait', [AuthController::class, 'magicWait'])
 Route::get('/magic/status', [AuthController::class, 'magicStatus'])
     ->name('magic.status');
 
-Route::get('/magic/verify/{token}', [AuthController::class, 'magicVerify'])
-    ->name('magic.verify');
+Route::get('/auth/magic/{token}', [AuthController::class, 'magicShow'])
+    ->name('auth.magic.show');
+
+Route::post('/auth/magic/{token}', [AuthController::class, 'magicConsume'])
+    ->name('auth.magic.consume');
 
 Route::middleware(['auth:sanctum', 'disable-csrf'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])

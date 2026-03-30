@@ -115,7 +115,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 │  Form    │                               │  magicLink()  │
 └─────────┘                               └──────┬────────┘
                                                   │
-                                    1. Find/create user
+                                    1. Find user by email
                                     2. Create MagicLinkToken (15 min)
                                     3. Send MagicLinkMail
                                     4. Store IDs in session
@@ -130,16 +130,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ┌───────────────────────────────────────┘
         │  Meanwhile, user opens email...
         ▼
-┌─────────────┐   GET /magic/verify/{token}   ┌──────────────┐
-│  Email Link │ ─────────────────────────────► │ magicVerify() │
-│  (browser)  │                                │ marks approved│
-└─────────────┘                                └──────────────┘
-        │
-        ▼
-┌─────────────┐
-│  Success    │  "You can close this window"
-│  Page       │
-└─────────────┘
+┌─────────────┐   GET /auth/magic/{token}     ┌──────────────┐
+│  Email Link │ ─────────────────────────────► │ magicShow()   │
+│  (browser)  │                                │ (read-only)   │
+└─────────────┘                                └──────┬───────┘
+        │                                             │
+        ▼                                             ▼
+┌─────────────┐                              ┌──────────────┐
+│ Confirm     │   POST /auth/magic/{token}   │ magicConsume()│
+│ Page (form) │ ───────────────────────────► │ marks approved│
+│ "Sign in"   │                              │ creates token │
+└─────────────┘                              │ sets cookie   │
+                                             │ redirects home│
+                                             └──────────────┘
+
+        The GET never consumes the token — only the POST does.
+        This prevents email scanners (O365, Avast, Gmail corporate)
+        from invalidating tokens via pre-fetch.
 
         Back on the wait page...
         ┌───────────────────────────────────────┐
@@ -170,7 +177,8 @@ All routes are registered in the `web` middleware group.
 | POST | `/auth/magic-link` | `login.magic-link` | web | Validate email, send magic link |
 | GET | `/magic/wait` | `magic.wait` | web | Show "check your email" page |
 | GET | `/magic/status` | `magic.status` | web | Poll for token approval (JSON) |
-| GET | `/magic/verify/{token}` | `magic.verify` | web | Verify token from email link |
+| GET | `/auth/magic/{token}` | `auth.magic.show` | web | Show confirmation page (read-only) |
+| POST | `/auth/magic/{token}` | `auth.magic.consume` | web | Consume token, authenticate, redirect |
 | POST | `/logout` | `logout` | web, auth:sanctum, disable-csrf | Revoke token, redirect |
 
 ## Configuration Reference
@@ -201,8 +209,7 @@ Files you can customize:
 | `layouts/_auth.blade.php` | Auth page layout (add your logo, CSS, branding) |
 | `auth/login.blade.php` | Login form |
 | `auth/magic_wait.blade.php` | "Check your email" polling page |
-| `auth/magic_success.blade.php` | "Login successful" confirmation |
-| `auth/magic_error.blade.php` | "Link invalid/expired" error |
+| `auth/magic.blade.php` | Magic link confirmation (valid → sign-in form, invalid → error) |
 | `emails/magic-link.blade.php` | Email HTML template |
 
 ### Option B: Use your own layout
@@ -234,15 +241,15 @@ The email subject is also translatable — set `auth.mail_subject` to the key, a
 ## Security Notes
 
 - **Token validity**: Tokens expire after `token_expiry` minutes (default 15) and can only be used once. The wait page auto-redirects to login when the token expires (server-side detection) or when the polling timeout is reached (client-side)
-- **Two-stage approval**: Token is created as `approved=false`, only set to `true` when the email link is clicked
+- **Two-step verification**: The email link (GET) only shows a confirmation page — it never consumes the token. The user must click "Sign in" (POST) to authenticate. This prevents email security scanners (Office 365, Avast, Gmail corporate) from invalidating tokens via URL pre-fetch
 - **Session tracking**: The wait page uses session to track which token belongs to which browser session
 - **Cookie auth bridge**: The `auth_token` cookie is unencrypted and non-httpOnly so the client JS can read it. The `AuthorizationFromCookie` middleware converts it to a `Authorization: Bearer` header for Sanctum
-- **Auto-create users**: `firstOrCreate` is used — any email submitted will create a user. If you need to restrict registration, override the `AuthController` or add validation logic
+- **No auto-registration**: The controller looks up the user by email. If the email does not belong to an existing user, the magic link is not sent. Users must be created through a separate registration flow
 - **CSRF**: The login form uses `@csrf`. The logout route uses `disable-csrf` middleware since it's protected by `auth:sanctum`
 
 ## Overriding the Controller
 
-If you need custom behavior (e.g., restrict user creation, add logging, change redirect logic), extend the controller in your project:
+If you need custom behavior (e.g., add logging, restrict by domain, change redirect logic), extend the controller in your project:
 
 ```php
 namespace App\Http\Controllers;
@@ -253,12 +260,11 @@ class AuthController extends BaseAuthController
 {
     public function magicLink(Request $request)
     {
-        // Custom logic before calling parent
+        // Only allow company emails
         $validated = $request->validate(['email' => 'required|email']);
 
-        // Only allow existing users (no auto-create)
-        if (!User::where('email', $validated['email'])->exists()) {
-            return back()->withErrors(['email' => __('Unknown email address.')]);
+        if (!str_ends_with($validated['email'], '@yourcompany.com')) {
+            return back()->withErrors(['email' => __('Only company emails are allowed.')]);
         }
 
         return parent::magicLink($request);

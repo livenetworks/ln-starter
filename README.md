@@ -93,8 +93,7 @@ ln-starter/
 │       ├── auth/
 │       │   ├── login.blade.php        # Login form (magic link)
 │       │   ├── magic_wait.blade.php   # Polling wait page
-│       │   ├── magic_success.blade.php# Verification success
-│       │   └── magic_error.blade.php  # Verification error
+│       │   └── magic.blade.php        # Magic link confirmation / error
 │       └── emails/
 │           └── magic-link.blade.php   # Magic link email template
 ├── docs/
@@ -383,18 +382,22 @@ In `bootstrap/app.php`:
 | POST | `/auth/magic-link` | `login.magic-link` | Send magic link email |
 | GET | `/magic/wait` | `magic.wait` | "Check your email" polling page |
 | GET | `/magic/status` | `magic.status` | Poll endpoint (JSON) |
-| GET | `/magic/verify/{token}` | `magic.verify` | Verify token from email |
+| GET | `/auth/magic/{token}` | `auth.magic.show` | Show confirmation page (read-only) |
+| POST | `/auth/magic/{token}` | `auth.magic.consume` | Consume token, authenticate, redirect |
 | POST | `/logout` | `logout` | Revoke token, redirect to login |
 
 ### Flow
 
 ```
 1. User visits /login → enters email → POST /auth/magic-link
-2. Package creates user (if new), generates token, sends email
+2. Package looks up user, generates token, sends email
 3. Redirects to /magic/wait → JS polls /magic/status every 2s
-4. User clicks email link → GET /magic/verify/{token} → marks token approved
-5. Next poll detects approval → issues Sanctum token → sets cookie → redirects to home
+4. User clicks email link → GET /auth/magic/{token} → sees confirmation page (token NOT consumed)
+5. User clicks "Sign in" → POST /auth/magic/{token} → token consumed, Sanctum token issued, cookie set, redirect to home
+6. Meanwhile, polling page detects approval → also issues token → redirects to home
 ```
+
+> **Why two steps?** Email scanners (Office 365, Avast, Gmail corporate) pre-fetch URLs via GET. The GET route never consumes the token — only the POST (form submit) does. Scanners never submit forms.
 
 ### Customizing views
 
@@ -407,8 +410,7 @@ php artisan vendor:publish --tag=ln-starter-views
 Views are published to `resources/views/vendor/ln-starter/`. Edit:
 - `auth/login.blade.php` — login form
 - `auth/magic_wait.blade.php` — polling page
-- `auth/magic_success.blade.php` — verification success
-- `auth/magic_error.blade.php` — verification error
+- `auth/magic.blade.php` — magic link confirmation (valid → sign-in form, invalid → error)
 - `emails/magic-link.blade.php` — email template
 - `layouts/_auth.blade.php` — auth page layout
 

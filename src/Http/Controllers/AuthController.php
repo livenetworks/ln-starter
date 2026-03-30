@@ -50,9 +50,13 @@ class AuthController extends LNController
             ]);
 
             $userModel = config('ln-starter.auth.user_model', 'App\\Models\\User');
-            $user = $userModel::firstOrCreate(
-                ['email' => $validated['email']]
-            );
+            $user = $userModel::where('email', $validated['email'])->first();
+
+            if (!$user) {
+                return back()->withErrors([
+                    'email' => __('No account found with this email address.'),
+                ])->withInput();
+            }
 
             $expiry = config('ln-starter.auth.token_expiry', 15);
 
@@ -137,25 +141,42 @@ class AuthController extends LNController
     }
 
     /**
-     * Verify the magic link token (called when user clicks the email link).
+     * Show the magic link confirmation page (GET — never consumes the token).
      */
-    public function magicVerify()
+    public function magicShow(string $token)
     {
-        $token = request()->route('token');
+        $magicToken = MagicLinkToken::where('token', $token)->first();
+
+        return view('ln-starter::auth.magic', [
+            'magicToken' => $magicToken,
+            'token'      => $token,
+        ]);
+    }
+
+    /**
+     * Consume the magic link token, authenticate, and redirect (POST).
+     */
+    public function magicConsume(string $token)
+    {
         $magicToken = MagicLinkToken::where('token', $token)->first();
 
         if (!$magicToken || !$magicToken->isValid()) {
-            return view('ln-starter::auth.magic_error', [
-                'message' => __('Link is invalid or expired.'),
-            ]);
+            return redirect()->route('auth.magic.show', ['token' => $token]);
         }
+
+        $this->restoreLocaleDefaults();
 
         $magicToken->update([
             'approved'    => true,
             'approved_at' => now(),
         ]);
 
-        return view('ln-starter::auth.magic_success');
+        $user          = $magicToken->user;
+        $sanctumToken  = $user->createToken('auth_token')->plainTextToken;
+        $homeRoute     = config('ln-starter.auth.home_route', 'home');
+
+        return redirect()->route($homeRoute)
+            ->cookie('auth_token', $sanctumToken, 0, '/', null, false, true);
     }
 
     /**

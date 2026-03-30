@@ -239,10 +239,10 @@ The package provides opt-in passwordless auth. Enable with `config('ln-starter.a
 
 ### What it provides
 
-- `AuthController` — `magicLink()`, `magicWait()`, `magicStatus()`, `magicVerify()`, `logout()`
+- `AuthController` — `magicLink()`, `magicWait()`, `magicStatus()`, `magicShow()`, `magicConsume()`, `logout()`
 - `MagicLinkToken` model — with configurable user relationship
 - `MagicLinkMail` — with configurable subject
-- Views — login, wait, success, error, email template
+- Views — login, wait, magic link confirmation (sign-in form / error), email template
 - Routes — registered automatically when enabled
 - Migration — `magic_link_tokens` table
 

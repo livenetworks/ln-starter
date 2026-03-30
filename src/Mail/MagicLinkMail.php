@@ -33,7 +33,7 @@ class MagicLinkMail extends Mailable
             with: [
                 'user'      => $this->user,
                 'token'     => $this->token,
-                'link'      => route('magic.verify', ['token' => $this->token->token]),
+                'link'      => route('auth.magic.show', ['token' => $this->token->token]),
                 'expiresIn' => $this->token->expires_at->diffInMinutes(now()),
             ],
         );
