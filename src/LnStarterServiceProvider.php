@@ -25,6 +25,7 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->registerMigrations();
         $this->registerPublishing();
         $this->registerCommands();
+        $this->publishSkillOnInstall();
     }
 
     protected function registerExceptionHandling(): void
@@ -139,6 +140,20 @@ class LnStarterServiceProvider extends ServiceProvider
                 \LiveNetworks\LnStarter\Console\InstallCommand::class,
                 \LiveNetworks\LnStarter\Console\CleanupMagicLinkTokensCommand::class,
             ]);
+        }
+    }
+
+    protected function publishSkillOnInstall(): void
+    {
+        $target = base_path('.claude/skills/ln-starter/SKILL.md');
+        $source = __DIR__ . '/../skills/ln-starter/SKILL.md';
+
+        if (!file_exists($target) && file_exists($source)) {
+            $dir = dirname($target);
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            copy($source, $target);
         }
     }
 }

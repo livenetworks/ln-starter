@@ -16,7 +16,10 @@
       "Bash(git tag:*)",
       "Bash(git push:*)",
       "Bash(grep -l \"auth\\\\|magic\" /c/laragon/www/ln-starter/.claude/skills/*/SKILL.md)",
-      "Bash(grep -i \"auth\\\\|magic\\\\|passwordless\" /c/laragon/www/ln-starter/.claude/skills/*/SKILL.md)"
+      "Bash(grep -i \"auth\\\\|magic\\\\|passwordless\" /c/laragon/www/ln-starter/.claude/skills/*/SKILL.md)",
+      "Bash(git -C /c/laragon/www/ln-starter status)",
+      "Bash(git -C /c/laragon/www/ln-starter add src/Http/Controllers/AuthController.php)",
+      "Bash(git -C:*)"
     ]
   }
 }
