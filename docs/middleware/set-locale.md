@@ -63,7 +63,10 @@ Route::get('/', fn () => redirect('/' . config('app.locale')));
 1. Reads `{locale}` route parameter from the first URL segment
 2. Validates against `config('app.languages')` keys
 3. If valid: calls `app()->setLocale($locale)` and shares `$currentLocale` with all views
-4. If invalid or missing: redirects to the same path with default locale prefix, preserving query string
+4. Forgets the `{locale}` route parameter so it is **not** passed positionally into controller actions — route-model-bound actions under the prefix (e.g. `Route::resource`, `show(Lodge $lodge)`) receive their real argument, not the locale string
+5. If invalid or missing: redirects to the same path with default locale prefix, preserving query string
+
+> Because of step 4, controller actions need no changes — `Route::resource('documents', ...)` under `Route::prefix('{locale}')` works as-is. `route()` links still auto-inject the locale via `URL::defaults`.
 
 ## View integration
 

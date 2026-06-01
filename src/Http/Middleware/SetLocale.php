@@ -15,6 +15,9 @@ class SetLocale
      * Expects routes to be wrapped in Route::prefix('{locale}').
      * Validates against config('app.languages') keys.
      * If locale is missing or invalid, redirects to default locale.
+     * After consuming the locale, forgets the {locale} route parameter so it
+     * is not passed positionally into controller actions (route-model binding
+     * stays intact; route() helpers keep working via URL::defaults).
      *
      * Usage in routes:
      *   Route::prefix('{locale}')->middleware('ln.locale')->group(function () { ... });
@@ -67,6 +70,13 @@ class SetLocale
 
         // Share locale with all views
         view()->share('currentLocale', $locale);
+
+        // Drop {locale} from the route parameters now that it has been consumed.
+        // It is the first prefix parameter, so Laravel's controller dispatcher
+        // would otherwise pass it positionally into actions — shifting the real
+        // bound argument (e.g. show(Lodge $lodge) receiving the 'mk' string and
+        // raising a TypeError). URL::defaults above keeps route() helpers working.
+        $request->route()?->forgetParameter('locale');
 
         return $next($request);
     }
