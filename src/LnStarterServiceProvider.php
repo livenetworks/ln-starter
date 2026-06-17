@@ -14,6 +14,8 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(
             __DIR__ . '/../config/ln-starter.php', 'ln-starter'
         );
+
+        $this->app->singleton(\LiveNetworks\LnStarter\Support\LocaleManager::class);
     }
 
     public function boot(): void
@@ -40,11 +42,13 @@ class LnStarterServiceProvider extends ServiceProvider
 
         // Core aliases — always registered, regardless of published config
         $core = [
-            'sanctum.token' => \LiveNetworks\LnStarter\Http\Middleware\AuthenticateWithSanctum::class,
-            'cookie.auth'   => \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class,
-            'disable-csrf'  => \LiveNetworks\LnStarter\Http\Middleware\DisableCsrf::class,
-            'ln.auth'       => \LiveNetworks\LnStarter\Http\Middleware\RequireAuthentication::class,
-            'ln.locale'     => \LiveNetworks\LnStarter\Http\Middleware\SetLocale::class,
+            'sanctum.token'      => \LiveNetworks\LnStarter\Http\Middleware\AuthenticateWithSanctum::class,
+            'cookie.auth'        => \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class,
+            'disable-csrf'       => \LiveNetworks\LnStarter\Http\Middleware\DisableCsrf::class,
+            'ln.auth'            => \LiveNetworks\LnStarter\Http\Middleware\RequireAuthentication::class,
+            'ln.locale'          => \LiveNetworks\LnStarter\Http\Middleware\SetLocale::class,
+            'ln.locale.prepare'  => \LiveNetworks\LnStarter\Http\Middleware\PrepareLocale::class,
+            'ln.locale.redirect' => \LiveNetworks\LnStarter\Http\Middleware\RedirectToLocale::class,
         ];
 
         // Project config can add extra aliases or override core ones
@@ -63,6 +67,7 @@ class LnStarterServiceProvider extends ServiceProvider
 
         Blade::component('ln.toast', \LiveNetworks\LnStarter\View\Components\Toast::class);
         Blade::component('ln.modal', \LiveNetworks\LnStarter\View\Components\Modal::class);
+        Blade::component('ln.lang-switcher', \LiveNetworks\LnStarter\View\Components\LangSwitcher::class);
     }
 
     protected function registerAuthRoutes(): void
@@ -71,8 +76,23 @@ class LnStarterServiceProvider extends ServiceProvider
             return;
         }
 
-        Route::middleware('web')
-            ->group(__DIR__ . '/../routes/auth.php');
+        $locale = $this->app->make(\LiveNetworks\LnStarter\Support\LocaleManager::class);
+
+        if ($locale->multilingual()) {
+            // Localized auth routes (names preserved by routes/auth.php).
+            Route::prefix('{locale}')
+                ->middleware(['web', 'ln.locale'])
+                ->group(__DIR__ . '/../routes/auth.php');
+
+            // Bare /login → negotiate + redirect to /{locale}/login.
+            // UNNAMED so it does not clobber the 'login' name on the localized route.
+            Route::middleware(['web', 'ln.locale.redirect'])
+                ->get('/login', fn () => abort(404));
+        } else {
+            // Single-language: exactly as before — zero behavior change.
+            Route::middleware('web')
+                ->group(__DIR__ . '/../routes/auth.php');
+        }
     }
 
     protected function registerMigrations(): void

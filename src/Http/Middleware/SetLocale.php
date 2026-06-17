@@ -41,7 +41,7 @@ class SetLocale
 
         // Invalid or missing locale → redirect to default with same path
         if (!$locale || !in_array($locale, $supported)) {
-            $default = config('app.locale', $supported[0] ?? 'en');
+            $default = app(\LiveNetworks\LnStarter\Support\LocaleManager::class)->negotiate($request);
             $path = $request->path();
 
             // Strip invalid locale prefix if present

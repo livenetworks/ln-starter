@@ -247,6 +247,16 @@ The email subject is also translatable — set `auth.mail_subject` to the key, a
 - **No auto-registration**: The controller looks up the user by email. If the email does not belong to an existing user, the magic link is not sent. Users must be created through a separate registration flow
 - **CSRF**: The login form uses `@csrf`. The logout route uses `disable-csrf` middleware since it's protected by `auth:sanctum`
 
+## Multilingual auth
+
+When `count(config('app.languages')) > 1` (i.e. `LocaleManager::multilingual()` is true), the package registers auth routes differently:
+
+- **Localized routes** are wrapped in `Route::prefix('{locale}')->middleware(['web', 'ln.locale'])`. Every named route (`login`, `login.magic-link`, `magic.wait`, `magic.status`, `auth.magic.show`, `auth.magic.consume`, `logout`) is preserved exactly — no renaming.
+- **Bare `/login`** gets an UNNAMED `GET /login` route with `ln.locale.redirect` middleware. It negotiates the user's locale from the `Accept-Language` header (or session / fallback) and 302s to `/{locale}/login`. Being unnamed, it does not clobber the `login` name on the localized route.
+- **`route('login')` resolvability** is guaranteed globally by `PrepareLocale` (alias `ln.locale.prepare`), which must be registered as the first global `web` middleware in `bootstrap/app.php`. It seeds `URL::defaults(['locale' => $negotiated])` before routing so any `route()` call — including `RequireAuthentication`'s 401 redirect and magic-link emails — always has a `locale` default.
+
+For apps that own their own `AuthController` and `routes/auth.php` (e.g. DocuFlow), set `ln-starter.auth.enabled = false` and apply the `{locale}` prefix inside your own `routes/auth.php`. The `ln.locale.prepare` and `ln.locale.redirect` aliases are available regardless of `auth.enabled`.
+
 ## Overriding the Controller
 
 If you need custom behavior (e.g., add logging, restrict by domain, change redirect logic), extend the controller in your project:

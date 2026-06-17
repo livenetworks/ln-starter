@@ -13,6 +13,8 @@
 		@stack('styles')
 	</head>
 	<body>
+		<x-ln.lang-switcher />
+
 		@yield('content')
 
 		<x-ln.toast />

@@ -97,6 +97,35 @@ Or use a helper/macro to inject it automatically (project-level decision).
 
 If `config('app.languages')` is empty, the middleware falls back to `config('app.locale')` and `config('app.fallback_locale')` as the only supported locales.
 
+## Negotiation & fallback
+
+When the incoming locale is missing or invalid, `SetLocale` no longer hard-defaults to `config('app.locale')`. Instead it uses **`LocaleManager::negotiate()`**, which probes (in order):
+
+1. The `{locale}` URL segment (authoritative — only relevant if already present but invalid)
+2. The session `locale` key (sticky user choice)
+3. The `Accept-Language` HTTP header (best q-ordered match against supported locales, primary-subtag, case-insensitive)
+4. `config('app.fallback_locale')` (final fallback)
+
+The `strlen === 2` strip heuristic for invalid leading segments is **unchanged** in this release — noted as a future cleanup.
+
+### Related middleware aliases
+
+| Alias | Class | Purpose |
+|---|---|---|
+| `ln.locale` | `SetLocale` | Consume explicit `{locale}` segment inside a prefix group |
+| `ln.locale.prepare` | `PrepareLocale` | Global web middleware — seeds `URL::defaults['locale']` so `route()` always resolves without requiring a locale param |
+| `ln.locale.redirect` | `RedirectToLocale` | Attached to bare entrypoints (`/`, `/login`) — negotiates and 302s to `/{locale}/...` |
+
+### Registering PrepareLocale globally
+
+Vanilla `ln-starter` apps should add `PrepareLocale` as the first global `web` middleware in `bootstrap/app.php` so `route('login')` (and any other localized route) is always resolvable — even on requests that are outside the `{locale}` prefix group (e.g. API 401 redirects, unauthenticated middleware):
+
+```php
+$middleware->web(prepend: [
+    \LiveNetworks\LnStarter\Http\Middleware\PrepareLocale::class,
+]);
+```
+
 ## Configuration
 
-No additional configuration needed beyond `config('app.languages')`. The middleware alias `ln.locale` is registered automatically by `LnStarterServiceProvider`.
+No additional configuration needed beyond `config('app.languages')`. The middleware aliases `ln.locale`, `ln.locale.prepare`, and `ln.locale.redirect` are registered automatically by `LnStarterServiceProvider`.
