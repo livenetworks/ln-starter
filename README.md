@@ -98,6 +98,9 @@ ln-starter/
 │           └── magic-link.blade.php   # Magic link email template
 ├── docs/
 │   ├── auth.md                        # Auth module setup & flow
+│   ├── auth-v2-test-matrix.md         # Security acceptance matrix for auth v2
+│   ├── adr/
+│   │   └── 0001-magic-link-authentication-v2.md # Accepted auth v2 design
 │   ├── dual-mode-response.md          # How the response system works
 │   ├── read-write-models.md           # Read/write model separation
 │   ├── message-dto.md                 # Message DTO usage

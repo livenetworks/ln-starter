@@ -1,5 +1,10 @@
 # Auth Module (Passwordless / Magic Link)
 
+> Security redesign: the replacement link-plus-code state machine is specified
+> in [`adr/0001-magic-link-authentication-v2.md`](adr/0001-magic-link-authentication-v2.md).
+> This document describes the currently implemented v1 flow until that ADR is
+> implemented.
+
 ## Overview
 
 LN-Starter includes an opt-in passwordless authentication module. When enabled, it registers routes, loads migrations, and provides views for a complete magic link login flow — no passwords, no separate auth scaffolding.

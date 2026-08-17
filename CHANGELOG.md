@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - Make users-migration installation non-destructive unless exactly one migration exists and `--force` is explicitly supplied
 
 ### Changed
+- Accepted the magic-link v2 link-plus-code state-machine design and security acceptance matrix; implementation follows after the observability foundation
 - Auth views redesigned: card-based layout with gradient backgrounds, inline SVG icons, animations, and richer UX (info boxes, countdown, troubleshooting tips)
 - Auth SCSS (`auth.scss`) rewritten as fully standalone — no ln-acme dependency; uses CSS custom properties and self-contained BEM classes
 - Auth layout (`_auth.blade.php`) simplified to minimal HTML shell; views handle their own full-screen layout
