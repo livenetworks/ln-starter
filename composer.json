@@ -33,7 +33,32 @@
         }
     },
     "scripts": {
-        "test": "@php vendor/bin/phpunit"
+        "test": "@php vendor/bin/phpunit",
+        "verify-artifact": "@php scripts/verify-artifact.php"
+    },
+    "archive": {
+        "exclude": [
+            "/.github",
+            "/.claude",
+            "/.gitmodules",
+            "/.gitignore",
+            "/tests",
+            "/scripts",
+            "/phpunit.xml",
+            "/vendor",
+            "/composer.lock",
+            "/.phpunit.cache",
+            "/.phpunit.result.cache",
+            "/node_modules",
+            "/.env",
+            "/.env.*",
+            "*.log",
+            "*.sqlite",
+            "*.sqlite3",
+            "/.idea",
+            "/.vscode",
+            "/.DS_Store"
+        ]
     },
     "extra": {
         "laravel": {
