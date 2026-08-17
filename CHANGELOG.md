@@ -15,13 +15,20 @@ All notable changes to this project will be documented in this file.
 - Store only purpose-separated proof digests, bind codes to the requesting session, and support versioned HMAC pepper rotation
 - Process email eligibility and delivery in encrypted queue jobs behind enumeration-resistant public responses and layered throttles
 - Emit structured allow-listed security events without email, token, code, cookie, authorization, body, or session secrets
+- Fail auth-v2 production readiness when the database cannot provide transactional row locking (SQLite, or a non-InnoDB `magic_login_attempts` table), since `lockForUpdate()` is silently a no-op there and single-use consumption would not be atomic
+
+### Fixed
+- Isolate the test database between test classes on server-backed connections; without it, tables created by one class leaked into the next and the MySQL lane failed on table-ordering rather than on behaviour
+- Pin the MySQL test connection to InnoDB instead of the server default, so the row-lock race contract is never exercised on a non-transactional engine
+- Run the concurrency race test on PostgreSQL as well as MySQL/MariaDB, rather than skipping it on every non-MySQL driver
+- Use the real `COMPOSER_NO_AUDIT` variable in CI; the previous `COMPOSER_NO_SECURITY_BLOCKING` is not a Composer setting and had no effect
 
 ### Changed
 - Add `<x-ln.logout-form />` as the CSRF-safe package logout control
 - Retain `/magic/wait` and `GET|POST /magic/status` only as one-release HTTP 410 tombstones that cannot issue credentials
 - Implement the accepted magic-link v2 link-plus-code state machine and its security acceptance suite
 - Tighten the auth-v2 specification with constrained route ordering, bounded confirmation contexts, explicit cross-device UX, layered rate limits, versioned pepper rotation, and a v1 published-view migration policy
-- Add a Laravel 11/12/13 CI matrix that runs on SQLite and row-locking MySQL
+- Add a Laravel 11/12/13 CI matrix that runs on SQLite, MySQL, and PostgreSQL — the stack's documented primary database
 - Add auth-v2 upgrade audit/readiness/cutover commands, published-view preflight, retention-aware cleanup, and a separate optional Sanctum migration tag
 - Auth views redesigned: card-based layout with gradient backgrounds, inline SVG icons, animations, and richer UX (info boxes, countdown, troubleshooting tips)
 - Auth SCSS (`auth.scss`) rewritten as fully standalone — no ln-acme dependency; uses CSS custom properties and self-contained BEM classes

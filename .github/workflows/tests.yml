@@ -9,21 +9,30 @@ permissions:
 
 jobs:
   test:
-    name: Laravel ${{ matrix.framework.laravel }} / PHP ${{ matrix.php }} / ${{ matrix.database }}
+    name: L${{ matrix.framework.laravel }} ${{ matrix.framework.support }} / PHP ${{ matrix.php }} / ${{ matrix.database }}
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
         framework:
+          # Laravel 11 is an END-OF-LIFE compatibility lane. It exists so the
+          # package keeps installing for consumers who have not upgraded yet.
+          # A green L11 lane is NOT evidence that Laravel 11 is security-
+          # supported, and it must never be cited as a production target.
           - laravel: '11'
             testbench: '^9.17'
+            support: 'EOL-compat'
           - laravel: '12'
             testbench: '^10.11'
+            support: 'supported'
           - laravel: '13'
             testbench: '^11.2'
+            support: 'supported'
         php: ['8.3', '8.4', '8.5']
-        database: [sqlite, mysql]
+        # PostgreSQL is the stack's documented primary database, so it gets a
+        # first-class lane; the row-lock race test only runs on mysql/pgsql.
+        database: [sqlite, mysql, pgsql]
 
     services:
       mysql:
@@ -39,15 +48,31 @@ jobs:
           --health-timeout=5s
           --health-retries=20
 
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: ln_starter
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready --username=postgres --dbname=ln_starter"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
     env:
-      DB_CONNECTION: ${{ matrix.database == 'mysql' && 'mysql' || 'testing' }}
+      DB_CONNECTION: ${{ matrix.database == 'sqlite' && 'testing' || matrix.database }}
       DB_HOST: 127.0.0.1
-      DB_PORT: 3306
+      DB_PORT: ${{ matrix.database == 'pgsql' && '5432' || '3306' }}
       DB_DATABASE: ln_starter
-      DB_USERNAME: root
-      DB_PASSWORD: root
-      # Laravel 11 is an EOL compatibility lane whose final upstream release
-      # is advisory-blocked by Composer. This never changes consumer config.
+      DB_USERNAME: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
+      DB_PASSWORD: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
+      # Laravel 11 is an EOL compatibility lane. Its final upstream release is
+      # advisory-blocked, so resolution needs security blocking disabled. This
+      # applies ONLY to the EOL lane and never to a supported production lane;
+      # the supported lanes additionally run `composer audit` below.
       COMPOSER_NO_SECURITY_BLOCKING: ${{ matrix.framework.laravel == '11' && '1' || '0' }}
 
     steps:
@@ -57,7 +82,7 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ matrix.php }}
-          extensions: mbstring, pdo_sqlite, pdo_mysql, pcntl
+          extensions: mbstring, pdo_sqlite, pdo_mysql, pdo_pgsql, pcntl
           coverage: none
 
       - name: Pin Testbench for Laravel ${{ matrix.framework.laravel }}
@@ -68,5 +93,28 @@ jobs:
         with:
           dependency-versions: highest
 
+      - name: Report lane
+        run: |
+          echo "Laravel ${{ matrix.framework.laravel }} (${{ matrix.framework.support }})"
+          echo "PHP ${{ matrix.php }}"
+          echo "Database lane: ${{ matrix.database }} (DB_CONNECTION=$DB_CONNECTION)"
+
+      # Supported production lanes must be advisory-clean. The EOL lane is
+      # excluded on purpose: it is a compatibility check, not a security claim.
+      - name: Composer audit (supported lanes only)
+        if: matrix.framework.laravel != '11'
+        run: composer audit --locked
+
       - name: Run test suite
-        run: composer test
+        run: vendor/bin/phpunit --display-skipped
+
+      # A skipped race test is indistinguishable from a passing one in the
+      # summary, so the row-locking contract is asserted explicitly. On a
+      # server-backed lane this test MUST execute; --fail-on-skipped turns a
+      # silent skip into a red lane.
+      - name: Assert the row-lock race test actually ran
+        if: matrix.database != 'sqlite'
+        run: |
+          vendor/bin/phpunit \
+            --filter test_concurrent_link_and_code_consumption_has_exactly_one_winner \
+            --fail-on-skipped

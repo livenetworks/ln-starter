@@ -6,9 +6,11 @@ use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\NullStore;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use LiveNetworks\LnStarter\Models\MagicLoginAttempt;
 use RuntimeException;
+use Throwable;
 
 class AuthV2Configuration
 {
@@ -42,6 +44,92 @@ class AuthV2Configuration
 
         if ($checkActivePepperReferences) {
             $this->validateActivePepperReferences();
+        }
+
+        if (app()->environment('production')) {
+            // Single-use consumption is atomic only because the state machine
+            // takes a row lock inside a transaction. Checked last so cheaper
+            // misconfiguration errors surface first. The storage-engine probe
+            // needs a query, so it runs only on the deep (non-boot) path.
+            $this->validateRowLockingDatabase($checkActivePepperReferences);
+        }
+    }
+
+    /**
+     * Reject databases that cannot make the pending-to-consumed transition atomic.
+     *
+     * `lockForUpdate()` is silently a no-op on SQLite and on MyISAM tables, which
+     * would let two concurrent proofs both observe a pending attempt and both
+     * authenticate — breaking the single-use invariant without any error.
+     */
+    private function validateRowLockingDatabase(bool $inspectStorageEngine): void
+    {
+        $driver = DB::connection()->getDriverName();
+
+        if ($driver === 'sqlite') {
+            throw new RuntimeException(
+                'LN-Starter auth v2 requires a database with transactional row locking in production; SQLite cannot make single-use consumption atomic.'
+            );
+        }
+
+        if (!$inspectStorageEngine || !in_array($driver, ['mysql', 'mariadb'], true)) {
+            return;
+        }
+
+        // The table is created by migrations, which may not have run yet on a
+        // first install. There is nothing to lock until it exists.
+        if (!Schema::hasTable('magic_login_attempts')) {
+            return;
+        }
+
+        self::assertInnoDbTable('magic_login_attempts');
+    }
+
+    /**
+     * Fail closed unless MySQL/MariaDB positively reports InnoDB for the table.
+     *
+     * An unreadable engine is treated exactly like a wrong engine: we cannot
+     * prove row locking works, so readiness must not pass. The failure message
+     * never includes connection credentials.
+     */
+    public static function assertInnoDbTable(string $table): void
+    {
+        try {
+            $row = DB::selectOne(
+                'select engine as ln_engine from information_schema.tables'
+                . ' where table_schema = database() and table_name = ?',
+                [$table]
+            );
+        } catch (Throwable $exception) {
+            throw new RuntimeException(sprintf(
+                'LN-Starter could not determine the storage engine of %s; readiness fails closed. (%s)',
+                $table,
+                $exception::class
+            ));
+        }
+
+        if ($row === null) {
+            throw new RuntimeException(sprintf(
+                'LN-Starter could not find %s in information_schema; storage engine is unknown and readiness fails closed.',
+                $table
+            ));
+        }
+
+        $engine = ((array) $row)['ln_engine'] ?? null;
+
+        if ($engine === null || trim((string) $engine) === '') {
+            throw new RuntimeException(sprintf(
+                'LN-Starter read an undefined storage engine for %s; readiness fails closed.',
+                $table
+            ));
+        }
+
+        if (strtoupper(trim((string) $engine)) !== 'INNODB') {
+            throw new RuntimeException(sprintf(
+                'LN-Starter requires an InnoDB %s table for row locking; found %s.',
+                $table,
+                $engine
+            ));
         }
     }
 

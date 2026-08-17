@@ -375,10 +375,27 @@ class AuthV2FeatureTest extends TestCase
         $this->app->make(AuthV2Configuration::class)->validate();
     }
 
-    public function test_concurrent_link_and_code_consumption_has_exactly_one_winner_on_mysql(): void
+    public function test_production_readiness_rejects_a_database_without_transactional_row_locking(): void
     {
-        if (DB::getDriverName() !== 'mysql' || !function_exists('pcntl_fork')) {
-            $this->markTestSkipped('Requires MySQL and pcntl for a real row-lock race.');
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('Asserts the SQLite rejection path.');
+        }
+
+        $this->app['env'] = 'production';
+        config()->set('queue.default', 'database');
+        config()->set('session.driver', 'file');
+        config()->set('cache.default', 'database');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('transactional row locking');
+
+        $this->app->make(AuthV2Configuration::class)->validate();
+    }
+
+    public function test_concurrent_link_and_code_consumption_has_exactly_one_winner(): void
+    {
+        if (!in_array(DB::getDriverName(), ['mysql', 'mariadb', 'pgsql'], true) || !function_exists('pcntl_fork')) {
+            $this->markTestSkipped('Requires a row-locking database (MySQL/MariaDB/PostgreSQL) and pcntl for a real row-lock race.');
         }
 
         $user = AuthV2User::create(['email' => 'race@example.test']);
@@ -392,7 +409,7 @@ class AuthV2FeatureTest extends TestCase
         foreach (['link', 'code'] as $index => $method) {
             $pid = pcntl_fork();
             if ($pid === -1) {
-                $this->fail('Unable to fork MySQL race-test worker.');
+                $this->fail('Unable to fork row-lock race-test worker.');
             }
 
             if ($pid === 0) {

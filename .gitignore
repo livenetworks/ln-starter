@@ -1,5 +1,8 @@
 /vendor/
 /node_modules/
+# Library package: consumers resolve their own versions, and CI tests against
+# `dependency-versions: highest`, so a committed lock file would only go stale.
+/composer.lock
 .phpunit.result.cache
 .phpunit.cache/
 .DS_Store
