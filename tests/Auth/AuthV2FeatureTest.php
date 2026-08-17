@@ -344,15 +344,32 @@ class AuthV2FeatureTest extends TestCase
         $this->assertArrayHasKey($contexts[3], $stored);
     }
 
+    /**
+     * A production configuration that satisfies every deployment check, so a
+     * readiness test can invalidate exactly one thing and assert on it.
+     */
+    private function productionBaseline(): void
+    {
+        $this->app['env'] = 'production';
+        config()->set('app.url', 'https://app.example.test');
+        config()->set('session.secure', true);
+        config()->set('session.http_only', true);
+        config()->set('session.same_site', 'lax');
+        config()->set('session.domain', null);
+        config()->set('session.driver', 'file');
+        config()->set('queue.default', 'database');
+        config()->set('queue.connections.database', ['driver' => 'database', 'table' => 'jobs']);
+        config()->set('mail.default', 'smtp');
+        config()->set('mail.mailers.smtp', ['transport' => 'smtp']);
+        config()->set('cache.default', 'database');
+    }
+
     public function test_production_readiness_fails_if_active_attempt_references_removed_pepper(): void
     {
         $user = AuthV2User::create(['email' => 'rotation@example.test']);
         $this->requestAndProcess($user->email);
 
-        $this->app['env'] = 'production';
-        config()->set('queue.default', 'database');
-        config()->set('session.driver', 'file');
-        config()->set('cache.default', 'database');
+        $this->productionBaseline();
         config()->set('ln-starter.auth.peppers.current', 'v2');
         config()->set('ln-starter.auth.peppers.keys', [
             'v2' => str_repeat('b', 32),
@@ -366,9 +383,7 @@ class AuthV2FeatureTest extends TestCase
 
     public function test_production_readiness_rejects_process_local_session_lock_cache(): void
     {
-        $this->app['env'] = 'production';
-        config()->set('queue.default', 'database');
-        config()->set('session.driver', 'file');
+        $this->productionBaseline();
         config()->set('cache.default', 'array');
 
         $this->expectException(RuntimeException::class);
@@ -383,10 +398,7 @@ class AuthV2FeatureTest extends TestCase
             $this->markTestSkipped('Asserts the SQLite rejection path.');
         }
 
-        $this->app['env'] = 'production';
-        config()->set('queue.default', 'database');
-        config()->set('session.driver', 'file');
-        config()->set('cache.default', 'database');
+        $this->productionBaseline();
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('transactional row locking');

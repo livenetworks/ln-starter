@@ -26,6 +26,10 @@ class AuthV2Configuration
         $this->proofs->assertConfigured();
 
         if (app()->environment('production')) {
+            $this->validateTransportSecurity();
+            $this->validateSessionCookie();
+            $this->validateQueueAndMail();
+
             if (config('queue.default') === 'sync') {
                 throw new RuntimeException('LN-Starter auth v2 requires a non-sync queue in production.');
             }
@@ -54,6 +58,85 @@ class AuthV2Configuration
             // misconfiguration errors surface first. The storage-engine probe
             // needs a query, so it runs only on the deep (non-boot) path.
             $this->validateRowLockingDatabase($checkActivePepperReferences);
+        }
+    }
+
+    /**
+     * A magic link delivered over http:// hands the proof to anyone on the
+     * path. The generated URL follows APP_URL, so this is the single setting
+     * that decides whether the whole flow is transport-secure.
+     */
+    private function validateTransportSecurity(): void
+    {
+        $appUrl = (string) config('app.url');
+
+        if ($appUrl === '' || !str_starts_with(strtolower($appUrl), 'https://')) {
+            throw new RuntimeException(
+                'LN-Starter auth v2 requires an https APP_URL in production; magic links inherit it. '
+                . 'Behind a TLS-terminating proxy, configure TrustProxies so generated URLs are https.'
+            );
+        }
+    }
+
+    /**
+     * Auth v2 authenticates with a framework session, so the session cookie is
+     * the credential. These are the flags that keep it from leaking.
+     */
+    private function validateSessionCookie(): void
+    {
+        if (config('session.secure') !== true) {
+            throw new RuntimeException(
+                'LN-Starter auth v2 requires SESSION_SECURE_COOKIE=true in production.'
+            );
+        }
+
+        if (config('session.http_only') !== true) {
+            throw new RuntimeException(
+                'LN-Starter auth v2 requires an http-only session cookie in production.'
+            );
+        }
+
+        $sameSite = config('session.same_site');
+
+        if (!in_array($sameSite, ['lax', 'strict'], true)) {
+            throw new RuntimeException(sprintf(
+                'LN-Starter auth v2 requires session.same_site to be "lax" or "strict" in production; found %s.',
+                var_export($sameSite, true)
+            ));
+        }
+
+        // A leading-dot/apex cookie domain widens the credential to every
+        // subdomain, including ones the application does not control.
+        $domain = config('session.domain');
+
+        if (is_string($domain) && str_starts_with($domain, '.') && substr_count($domain, '.') === 1) {
+            throw new RuntimeException(
+                'LN-Starter auth v2 refuses a top-level session cookie domain in production.'
+            );
+        }
+    }
+
+    /**
+     * Delivery happens on a queue, so a missing connection or mailer turns
+     * every login into silence rather than an error. Configuration only —
+     * readiness never opens a connection or sends mail.
+     */
+    private function validateQueueAndMail(): void
+    {
+        $queue = (string) config('queue.default');
+
+        if ($queue === '' || config("queue.connections.{$queue}") === null) {
+            throw new RuntimeException(
+                'LN-Starter auth v2 requires a configured queue connection in production.'
+            );
+        }
+
+        $mailer = (string) config('mail.default');
+
+        if ($mailer === '' || config("mail.mailers.{$mailer}") === null) {
+            throw new RuntimeException(
+                'LN-Starter auth v2 requires a configured mailer in production.'
+            );
         }
     }
 
