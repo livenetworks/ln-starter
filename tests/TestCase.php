@@ -25,7 +25,18 @@ abstract class TestCase extends Orchestra
         // is free. Server-backed connections persist between test classes, and
         // each class builds only the tables it owns — without this, leftovers
         // leak across classes and results become order-dependent.
-        if (DB::connection()->getDriverName() !== 'sqlite') {
+        $connection = DB::connection();
+
+        if ($connection->getDriverName() !== 'sqlite') {
+            // Fail closed. Dropping every table is unrecoverable, and a stray
+            // DB_DATABASE in the shell must never be enough to reach a real
+            // database.
+            TestDatabaseGuard::assertResettable(
+                (string) $this->app['env'],
+                $connection->getName(),
+                $connection->getDatabaseName(),
+            );
+
             Schema::dropAllTables();
         }
     }

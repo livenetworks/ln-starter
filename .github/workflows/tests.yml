@@ -34,6 +34,18 @@ jobs:
         # first-class lane; the row-lock race test only runs on mysql/pgsql.
         database: [sqlite, mysql, pgsql]
 
+        exclude:
+          # Laravel 11 requires php ^8.2, so 8.5 satisfies the constraint on
+          # paper. But 11.x reached end of life before PHP 8.5 shipped, so it
+          # will never receive a compatibility fix for it. Keeping this lane
+          # would mean a permanently red job that says nothing about the
+          # package. Supported lanes (12, 13) still cover 8.5.
+          - framework:
+              laravel: '11'
+              testbench: '^9.17'
+              support: 'EOL-compat'
+            php: '8.5'
+
     services:
       mysql:
         image: mysql:8.4
@@ -69,6 +81,10 @@ jobs:
       DB_DATABASE: ln_starter
       DB_USERNAME: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
       DB_PASSWORD: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
+      # The suite drops all tables between test classes on server-backed
+      # connections. That is opt-in and allow-listed by name, so it can only
+      # ever reach a disposable CI database. See tests/TestDatabaseGuard.php.
+      LN_STARTER_ALLOW_TEST_DB_RESET: '1'
       # Laravel 11 is an EOL compatibility lane. Its final upstream release is
       # advisory-blocked, so resolution needs security blocking disabled. This
       # applies ONLY to the EOL lane and never to a supported production lane;
@@ -115,6 +131,58 @@ jobs:
       - name: Assert the row-lock race test actually ran
         if: matrix.database != 'sqlite'
         run: |
+          echo "Race test on ${{ matrix.database }} (Laravel ${{ matrix.framework.laravel }} / PHP ${{ matrix.php }})"
+          php -r 'exit(function_exists("pcntl_fork") ? 0 : 1);' \
+            || { echo "::error::pcntl is unavailable; the race test cannot run"; exit 1; }
           vendor/bin/phpunit \
             --filter test_concurrent_link_and_code_consumption_has_exactly_one_winner \
-            --fail-on-skipped
+            --fail-on-skipped \
+            --testdox
+          echo "Race test executed on ${{ matrix.database }}: not skipped."
+
+  artifact:
+    name: Release artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      # Proves the published package is installable and free of local
+      # artefacts, rather than only proving the working tree is.
+      - name: Inspect the distributable artifact
+        run: php scripts/verify-artifact.php
+
+  consumer:
+    name: Consumer L${{ matrix.laravel }} install + upgrade
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Supported production lanes only; the EOL lane is a compatibility
+        # check, not an installation guarantee.
+        laravel: ['12', '13']
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: package
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite
+          coverage: none
+
+      - name: Fresh consumer installation
+        run: php package/scripts/consumer-install.php --laravel=${{ matrix.laravel }}
+
+      - name: Upgrade from a simulated auth v1 installation
+        run: php package/scripts/consumer-upgrade.php --laravel=${{ matrix.laravel }}

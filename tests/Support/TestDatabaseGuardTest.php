@@ -1,0 +1,123 @@
+<?php
+
+namespace LiveNetworks\LnStarter\Tests\Support;
+
+use LiveNetworks\LnStarter\Tests\TestDatabaseGuard;
+use PHPUnit\Framework\TestCase;
+use RuntimeException;
+
+/**
+ * The guard protects an unrecoverable operation, so its refusal paths matter
+ * more than its happy path. Pure unit test: it must not depend on the very
+ * database machinery it is guarding.
+ */
+class TestDatabaseGuardTest extends TestCase
+{
+    private string|false $originalOptIn = false;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Restored rather than cleared: on a server-backed lane the suite's own
+        // reset guard reads this variable, so leaking a cleared value would
+        // make every later test class refuse to run.
+        $this->originalOptIn = getenv(TestDatabaseGuard::OPT_IN);
+        putenv(TestDatabaseGuard::OPT_IN . '=1');
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->originalOptIn === false) {
+            putenv(TestDatabaseGuard::OPT_IN);
+        } else {
+            putenv(TestDatabaseGuard::OPT_IN . '=' . $this->originalOptIn);
+        }
+
+        parent::tearDown();
+    }
+
+    public function test_a_scratch_database_in_testing_with_opt_in_is_allowed(): void
+    {
+        $this->assertNull(
+            TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_scratch')
+        );
+    }
+
+    public function test_a_non_testing_environment_is_refused(): void
+    {
+        foreach (['production', 'local', 'staging', ''] as $env) {
+            $this->assertStringContainsString(
+                'APP_ENV',
+                (string) TestDatabaseGuard::refusalReason($env, 'mysql', 'ln_starter')
+            );
+        }
+    }
+
+    public function test_a_missing_opt_in_is_refused(): void
+    {
+        putenv(TestDatabaseGuard::OPT_IN);
+
+        $this->assertStringContainsString(
+            TestDatabaseGuard::OPT_IN,
+            (string) TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter')
+        );
+
+        putenv(TestDatabaseGuard::OPT_IN . '=0');
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter'));
+    }
+
+    public function test_an_unknown_connection_or_database_is_refused(): void
+    {
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', null, 'ln_starter'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', '  ', 'ln_starter'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', null));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', ''));
+    }
+
+    /**
+     * The allow-list already excludes these, but they are checked explicitly so
+     * that widening the allow-list later cannot accidentally admit one.
+     */
+    public function test_production_like_names_are_refused_even_with_opt_in(): void
+    {
+        foreach ([
+            'production',
+            'app_production',
+            'live_db',
+            'my_app',
+            'customer_data',
+            'tenant_7',
+            'staging_db',
+            'backup_2026',
+        ] as $name) {
+            $reason = TestDatabaseGuard::refusalReason('testing', 'mysql', $name);
+
+            $this->assertNotNull($reason, "expected refusal for {$name}");
+        }
+    }
+
+    public function test_an_unlisted_but_innocuous_name_is_still_refused(): void
+    {
+        // Fail closed: unknown is not the same as safe.
+        $this->assertStringContainsString(
+            'allow-list',
+            (string) TestDatabaseGuard::refusalReason('testing', 'pgsql', 'scratch_db_17')
+        );
+    }
+
+    public function test_assert_throws_with_actionable_guidance(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Refusing to drop all tables');
+
+        TestDatabaseGuard::assertResettable('production', 'mysql', 'ln_starter');
+    }
+
+    public function test_the_ci_database_name_is_permitted(): void
+    {
+        // Matches DB_DATABASE in .github/workflows/tests.yml.
+        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter'));
+        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'pgsql', 'ln_starter'));
+    }
+}
