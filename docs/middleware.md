@@ -2,7 +2,7 @@
 
 ## Overview
 
-LN-Starter ships four middleware classes that handle authentication and CSRF management. These are the generic, reusable middleware — project-specific authorization (RBAC, role checks) stays in your application.
+LN-Starter ships five middleware classes that handle authentication, CSRF management, and request correlation. These are the generic, reusable middleware — project-specific authorization (RBAC, role checks) stays in your application.
 
 ## AuthenticateWithSanctum
 
@@ -71,6 +71,35 @@ Route::middleware(['cookie.auth', 'sanctum.token'])->group(function () {
 
 - When your frontend stores Sanctum tokens in cookies (e.g., after login)
 - Always place BEFORE `sanctum.token` in the middleware stack
+
+## AssignRequestId
+
+**Alias:** `ln.request-id`
+
+Establishes the request/correlation identity used by every security event, and
+echoes it in the response.
+
+```php
+// bootstrap/app.php — add it to your own routes
+$middleware->web(append: [
+    \LiveNetworks\LnStarter\Http\Middleware\AssignRequestId::class,
+]);
+```
+
+The package's auth routes already carry it.
+
+### How it works
+
+1. Reads the configured header (`ln-starter.logging.request_id_header`, default
+   `X-Request-Id`).
+2. Accepts an inbound value **only** if it matches `[A-Za-z0-9_.:-]{8,128}`.
+   Missing, malformed, or oversized values are replaced with a generated ULID,
+   so an attacker cannot inject content into logs or response headers.
+3. Stores it on the request and in the `RequestContext` singleton.
+4. Sets the same header on the response.
+
+Queued magic-link jobs inherit the `correlation_id` and get their own
+`request_id`. See [`security-logging.md`](security-logging.md).
 
 ## DisableCsrf
 

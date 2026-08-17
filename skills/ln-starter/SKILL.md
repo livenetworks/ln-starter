@@ -167,6 +167,38 @@ class AuditLog extends LNWriteModel
 - Configure signed-webhook exclusions through Laravel and verify the provider signature independently
 - Never add a CSRF exemption merely because a route is authenticated
 
+### 10b. Security event logging
+
+Record security-relevant events through the package pipeline, never `Log::`
+directly and never through a second logger of your own:
+
+```php
+use LiveNetworks\LnStarter\Security\Outcome;
+use LiveNetworks\LnStarter\Security\ReasonCode;
+use LiveNetworks\LnStarter\Support\SecurityEventLogger;
+
+app(SecurityEventLogger::class)->event(
+    eventName: 'billing.refund.rejected',
+    outcome: Outcome::Rejected,
+    reasonCode: ReasonCode::Unspecified,
+    context: ['reason' => 'limit_exceeded'],
+);
+```
+
+Rules:
+
+- Context is **allow-listed**. Register new keys in
+  `ln-starter.logging.context_allow_list` or they are silently dropped
+- Never pass a raw email, IP, session ID, token, code, cookie, header, request
+  body, or exception message — use `principalKey()` for actor references
+- `reason_code` must come from the `ReasonCode` enum, never a free string
+- Add a destination by implementing `SecurityAuditSink` and calling
+  `SecurityEventDispatcher::extend()` — do not edit package code
+- Sink failures are fail-open by design; never make a login depend on auditing
+- Measure with `Stopwatch`, not `microtime()`
+
+See `docs/security-logging.md`.
+
 ## Middleware aliases
 
 | Alias | Class | Purpose |
@@ -175,6 +207,7 @@ class AuditLog extends LNWriteModel
 | `sanctum.token:required` | `AuthenticateWithSanctum` | Bearer token validation (401 if missing) |
 | `cookie.auth` | `AuthorizationFromCookie` | Cookie → Authorization header bridge |
 | `disable-csrf:bearer` | `DisableCsrf` | CSRF skip only when an Authorization bearer header is present |
+| `ln.request-id` | `AssignRequestId` | Request/correlation ID for security events + response header |
 
 Stack order for dual-mode routes: `cookie.auth` → `sanctum.token` → (web middleware group handles CSRF)
 

@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Structured security event pipeline: versioned envelope, closed severity/outcome/reason-code vocabularies, and a public `SecurityEventLogger` API for package and application events (ADR 0002)
+- `SecurityAuditSink` contract plus `SecurityEventDispatcher::extend()`, so applications add destinations without modifying package code
+- Recursive allow-list `ContextSanitizer` with deny-list veto, depth/field/value bounds, invalid-UTF-8 handling, and no `__toString()` on arbitrary objects
+- Versioned, purpose-separated pseudonymous identifiers (`v1:<digest>`) with rotation that keeps previous versions resolvable
+- `ln.request-id` middleware: validated inbound correlation header, generated ULID otherwise, echoed in the response, and inherited by the queued magic-link job
+- Real monotonic `duration_ms` on auth requests, proof verification, session creation, logout, and mail delivery
+- Opt-in `ln_security_audit_events` database sink with a publishable migration and `SecurityAuditEvent` read model
+- `ln-starter:security-audit-prune` with `--dry-run`, chunked portable deletes, and a production `--force` gate
+- Security-logging readiness checks folded into `ln-starter:auth-v2-readiness`
+- `docs/security-logging.md` with the event catalog, sink extension, pepper rotation, retention, and SIEM guidance
+
+### Changed
+- Auth v2 events renamed to the canonical catalog (`auth.magic.proof.accepted`, `auth.session.created`, `auth.session.terminated`, …); consumers matching the previous ad-hoc names must update
+- Magic-login state transitions stage their events and emit only after the locking transaction commits, so a rollback cannot produce a false success and exactly one winner reports acceptance under concurrency
+- Rate-limit events now distinguish email, IP, and session throttles through internal reason codes; the public response is unchanged
+
 ### Security
 - Keep CSRF protection enabled for session and cookie-authenticated requests; only `disable-csrf:bearer` routes carrying an explicit Authorization bearer token are excluded
 - Delegate `sanctum.token` authentication to Sanctum's official guard so token expiry, provider checks, events, and usage tracking are preserved

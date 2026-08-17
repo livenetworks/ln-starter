@@ -26,6 +26,8 @@ LN-Starter is a Laravel foundation package by Live Networks. It provides base cl
 
 9. **Passwordless auth module**: Opt-in via `config('ln-starter.auth.enabled')`. Auth v2 sends a high-entropy link plus a session-bound six-digit code from an encrypted queue job. Link GET is read-only; a CSRF-protected POST consumes exactly one proof under a database lock and starts a normal `web` session. Store only proof hashes, configure a versioned 32-byte pepper, and never reintroduce polling, PAT creation, or raw secrets in logs/URLs/database. See `docs/auth.md` and the auth v2 ADR.
 
+10. **Security event pipeline**: Record security events through `SecurityEventLogger` — never `Log::` directly, and never build a parallel logger. Every event gets a versioned envelope, a constrained `ReasonCode` (never a raw exception message), a pseudonymous `principal_key` (never a raw email/IP/session), and a real monotonic `duration_ms`. Context is allow-listed: register new keys in `logging.context_allow_list` or they are dropped. Add destinations by implementing `SecurityAuditSink` and calling `SecurityEventDispatcher::extend()`. Sink failures must stay fail-open — auditing never breaks a login. See `docs/security-logging.md` and ADR 0002.
+
 ## When generating code for projects using this package
 
 - Controllers MUST extend `LNController`, not Laravel's base `Controller`
