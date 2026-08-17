@@ -50,7 +50,7 @@ All notable changes to this project will be documented in this file.
 - Isolate the test database between test classes on server-backed connections; without it, tables created by one class leaked into the next and the MySQL lane failed on table-ordering rather than on behaviour
 - Pin the MySQL test connection to InnoDB instead of the server default, so the row-lock race contract is never exercised on a non-transactional engine
 - Run the concurrency race test on PostgreSQL as well as MySQL/MariaDB, rather than skipping it on every non-MySQL driver
-- Use the real `COMPOSER_NO_AUDIT` variable in CI; the previous `COMPOSER_NO_SECURITY_BLOCKING` is not a Composer setting and had no effect
+- Separate the CI security policy from the compatibility policy: Laravel 12 and 13 are supported production lanes and must pass `composer audit`; Laravel 11 is an end-of-life compatibility lane that is exempt from the audit gate. A green Laravel 11 lane proves only that the package still installs and runs there — it is not evidence that Laravel 11 is security-supported, and the package does not advertise it as a production target. The EOL lane sets `COMPOSER_NO_SECURITY_BLOCKING=1` for dependency resolution; that variable is not recognised by Composer 2.8.10 (verified against the shipped phar), so it is currently inert and is kept only until the Composer version GitHub Actions actually provisions has been confirmed
 
 ### Changed
 - Add `<x-ln.logout-form />` as the CSRF-safe package logout control
