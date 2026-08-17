@@ -234,8 +234,8 @@ $message = new Message(
 |---|---|
 | `AuthenticateWithSanctum` | Validates bearer tokens from `Authorization` header |
 | `AuthorizationFromCookie` | Bridges `auth_token` cookie to `Authorization` header |
-| `DisableCsrf` | Marker middleware — marks routes for CSRF skip |
-| `VerifyCsrfToken` | Extended Laravel CSRF that respects only the explicit `DisableCsrf` route marker |
+| `DisableCsrf` | Bearer-only marker middleware (`disable-csrf:bearer`) |
+| `VerifyCsrfToken` | Extended Laravel CSRF that exempts only marked requests with an explicit bearer header |
 
 ### BusinessException
 
@@ -384,10 +384,10 @@ In `bootstrap/app.php`:
 | GET | `/login` | `login` | Login form |
 | POST | `/auth/magic-link` | `login.magic-link` | Send magic link email |
 | GET | `/magic/wait` | `magic.wait` | "Check your email" polling page |
-| GET | `/magic/status` | `magic.status` | Poll endpoint (JSON) |
+| POST | `/magic/status` | `magic.status` | CSRF-protected poll endpoint (JSON) |
 | GET | `/auth/magic/{token}` | `auth.magic.show` | Show confirmation page (read-only) |
 | POST | `/auth/magic/{token}` | `auth.magic.consume` | Consume token, authenticate, redirect |
-| POST | `/logout` | `logout` | Revoke token, redirect to login |
+| POST | `/logout` | `logout` | Revoke token, invalidate session, redirect to login |
 
 ### Flow
 
@@ -398,6 +398,12 @@ In `bootstrap/app.php`:
 4. User clicks email link → GET /auth/magic/{token} → sees confirmation page (token NOT consumed)
 5. User clicks "Sign in" → POST /auth/magic/{token} → token consumed, Sanctum token issued, cookie set, redirect to home
 6. Meanwhile, polling page detects approval → also issues token → redirects to home
+```
+
+Render a CSRF-safe logout form with:
+
+```blade
+<x-ln.logout-form class="nav-logout">{{ __('Sign out') }}</x-ln.logout-form>
 ```
 
 > **Why two steps?** Email scanners (Office 365, Avast, Gmail corporate) pre-fetch URLs via GET. The GET route never consumes the token — only the POST (form submit) does. Scanners never submit forms.

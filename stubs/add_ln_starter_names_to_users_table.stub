@@ -1,0 +1,48 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        $addFirstName = !Schema::hasColumn('users', 'first_name');
+        $addLastName = !Schema::hasColumn('users', 'last_name');
+
+        if (!$addFirstName && !$addLastName) {
+            return;
+        }
+
+        Schema::table('users', function (Blueprint $table) use ($addFirstName, $addLastName) {
+            if ($addFirstName) {
+                $table->string('first_name')->nullable();
+            }
+
+            if ($addLastName) {
+                $table->string('last_name')->nullable();
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        $dropFirstName = Schema::hasColumn('users', 'first_name');
+        $dropLastName = Schema::hasColumn('users', 'last_name');
+
+        if (!$dropFirstName && !$dropLastName) {
+            return;
+        }
+
+        Schema::table('users', function (Blueprint $table) use ($dropFirstName, $dropLastName) {
+            if ($dropFirstName) {
+                $table->dropColumn('first_name');
+            }
+
+            if ($dropLastName) {
+                $table->dropColumn('last_name');
+            }
+        });
+    }
+};

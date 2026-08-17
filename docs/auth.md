@@ -127,7 +127,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
                                     5. Redirect to /magic/wait
                                                   │
                                                   ▼
-┌─────────────┐   fetch /magic/status    ┌─────────────┐
+┌─────────────┐ POST+CSRF /magic/status  ┌─────────────┐
 │  Wait Page  │ ◄──────────────────────► │  magicStatus()│
 │  (polling)  │   every 2 seconds        │  (JSON)       │
 └─────────────┘                          └──────┬────────┘
@@ -159,7 +159,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         │  → Creates Sanctum token               │
         │  → Sets auth_token cookie              │
         │  → Returns JSON with redirect URL      │
-        │  → JS stores token in sessionStorage   │
+        │  → Token remains in HttpOnly cookie    │
         │  → Redirects to home                   │
         └───────────────────────────────────────┘
 
@@ -181,10 +181,10 @@ All routes are registered in the `web` middleware group.
 | GET | `/login` | `login` | web | Show login form |
 | POST | `/auth/magic-link` | `login.magic-link` | web | Validate email, send magic link |
 | GET | `/magic/wait` | `magic.wait` | web | Show "check your email" page |
-| GET | `/magic/status` | `magic.status` | web | Poll for token approval (JSON) |
+| POST | `/magic/status` | `magic.status` | web, CSRF | Poll for token approval (JSON) and issue credentials after approval |
 | GET | `/auth/magic/{token}` | `auth.magic.show` | web | Show confirmation page (read-only) |
 | POST | `/auth/magic/{token}` | `auth.magic.consume` | web | Consume token, authenticate, redirect |
-| POST | `/logout` | `logout` | web, auth:sanctum | Revoke token, redirect |
+| POST | `/logout` | `logout` | web, auth:sanctum, CSRF | Revoke token, invalidate session, redirect |
 
 ## Configuration Reference
 
@@ -248,9 +248,9 @@ The email subject is also translatable — set `auth.mail_subject` to the key, a
 - **Token validity**: Tokens expire after `token_expiry` minutes (default 15) and can only be used once. The wait page auto-redirects to login when the token expires (server-side detection) or when the polling timeout is reached (client-side)
 - **Two-step verification**: The email link (GET) only shows a confirmation page — it never consumes the token. The user must click "Sign in" (POST) to authenticate. This prevents email security scanners (Office 365, Avast, Gmail corporate) from invalidating tokens via URL pre-fetch
 - **Session tracking**: The wait page uses session to track which token belongs to which browser session
-- **Cookie auth bridge**: The `auth_token` cookie is unencrypted and non-httpOnly so the client JS can read it. The `AuthorizationFromCookie` middleware converts it to a `Authorization: Bearer` header for Sanctum
+- **Cookie auth bridge**: The `auth_token` cookie is HttpOnly, uses the configured session SameSite/domain/path settings, and is Secure in production. `AuthorizationFromCookie` reads it server-side and converts it to an `Authorization: Bearer` header for Sanctum; client JavaScript cannot read the token
 - **No auto-registration**: The controller looks up the user by email. If the email does not belong to an existing user, the magic link is not sent. Users must be created through a separate registration flow
-- **CSRF**: Login, magic-link confirmation, and logout forms use normal CSRF protection. Authentication never disables CSRF automatically.
+- **CSRF**: Login, magic-status polling, magic-link confirmation, and logout use normal CSRF protection. Authentication never disables CSRF automatically. Render logout with `<x-ln.logout-form />` or include `@csrf` in your own POST form.
 
 ## Multilingual auth
 

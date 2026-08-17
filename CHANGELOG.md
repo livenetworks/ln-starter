@@ -5,12 +5,16 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Security
-- Keep CSRF protection enabled for session and cookie-authenticated requests; only explicit `disable-csrf` routes are excluded
+- Keep CSRF protection enabled for session and cookie-authenticated requests; only `disable-csrf:bearer` routes carrying an explicit Authorization bearer token are excluded
 - Delegate `sanctum.token` authentication to Sanctum's official guard so token expiry, provider checks, events, and usage tracking are preserved
-- Protect the built-in logout route with normal CSRF validation
-- Make users-migration installation non-destructive unless exactly one migration exists and `--force` is explicitly supplied
+- Protect modal submissions, magic-status polling, and the built-in logout route with normal CSRF validation
+- Invalidate the authenticated web session and rotate its CSRF token during logout
+- Make the `auth_token` cookie HttpOnly, SameSite-aware, and Secure in production
+- Publish an additive first/last-name migration without replacing consumer-owned users migrations
 
 ### Changed
+- Add `<x-ln.logout-form />` as the CSRF-safe package logout control
+- Change `/magic/status` from GET to POST because approval creates a token and cookie
 - Accepted the magic-link v2 link-plus-code state-machine design and security acceptance matrix; implementation follows after the observability foundation
 - Auth views redesigned: card-based layout with gradient backgrounds, inline SVG icons, animations, and richer UX (info boxes, countdown, troubleshooting tips)
 - Auth SCSS (`auth.scss`) rewritten as fully standalone — no ln-acme dependency; uses CSS custom properties and self-contained BEM classes

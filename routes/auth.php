@@ -23,7 +23,7 @@ Route::post('/auth/magic-link', [AuthController::class, 'magicLink'])
 Route::get('/magic/wait', [AuthController::class, 'magicWait'])
     ->name('magic.wait');
 
-Route::get('/magic/status', [AuthController::class, 'magicStatus'])
+Route::post('/magic/status', [AuthController::class, 'magicStatus'])
     ->name('magic.status');
 
 Route::get('/auth/magic/{token}', [AuthController::class, 'magicShow'])

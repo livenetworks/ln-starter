@@ -28,7 +28,6 @@ class AuthenticateWithSanctum
         $user = Auth::guard('sanctum')->user();
 
         if ($user) {
-            Auth::shouldUse('sanctum');
             $request->setUserResolver(static fn () => $user);
         }
 

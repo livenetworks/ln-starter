@@ -163,9 +163,9 @@ class AuditLog extends LNWriteModel
 ### 10. CSRF strategy
 
 - Session and cookie-authenticated forms remain CSRF-protected and must use `@csrf`
-- API routes authenticated exclusively by an `Authorization` bearer token may add `disable-csrf`
-- Signed webhooks may add `disable-csrf` after implementing provider-signature verification
-- Never add `disable-csrf` merely because a route is authenticated
+- API routes authenticated exclusively by an explicit `Authorization` bearer token may add `disable-csrf:bearer`
+- Configure signed-webhook exclusions through Laravel and verify the provider signature independently
+- Never add a CSRF exemption merely because a route is authenticated
 
 ## Middleware aliases
 
@@ -174,13 +174,13 @@ class AuditLog extends LNWriteModel
 | `sanctum.token` | `AuthenticateWithSanctum` | Bearer token validation (optional) |
 | `sanctum.token:required` | `AuthenticateWithSanctum` | Bearer token validation (401 if missing) |
 | `cookie.auth` | `AuthorizationFromCookie` | Cookie → Authorization header bridge |
-| `disable-csrf` | `DisableCsrf` | Marker for CSRF skip |
+| `disable-csrf:bearer` | `DisableCsrf` | CSRF skip only when an Authorization bearer header is present |
 
 Stack order for dual-mode routes: `cookie.auth` → `sanctum.token` → (web middleware group handles CSRF)
 
 ### 11. Blade components — Toast and Modal
 
-The package provides two auto-registered Blade components. No publish needed.
+The package provides three auto-registered Blade components. No publish needed.
 
 #### Toast — `<x-ln.toast />`
 
@@ -206,15 +206,22 @@ Renders a modal dialog wrapping a `<form>` with `data-ln-ajax` (AJAX submission)
 
 ```blade
 <x-ln.modal id="delete-member" title="Delete member?" submitText="Delete"
-    action="{{ route('members.destroy', $member) }}" method="POST">
-    @method('DELETE')
+    action="{{ route('members.destroy', $member) }}" method="DELETE">
     <p>{{ __('This action cannot be undone.') }}</p>
 </x-ln.modal>
 ```
 
-Parameters: `id`, `title`, `submitText` (default `Submit`), `action` (null = no form action), `method` (POST or GET — use `@method()` for PUT/PATCH/DELETE).
+Parameters: `id`, `title`, `submitText` (default `Submit`), `action` (null = no form action), `method`. Non-GET forms automatically include CSRF protection and PUT/PATCH/DELETE method spoofing.
 
 NEVER create custom modal or toast markup. Always use these components.
+
+#### Logout — `<x-ln.logout-form />`
+
+Use the CSRF-safe package form for logout:
+
+```blade
+<x-ln.logout-form>{{ __('Sign out') }}</x-ln.logout-form>
+```
 
 ## Scaffolding a new feature
 

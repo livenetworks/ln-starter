@@ -8,7 +8,8 @@ use PHPUnit\Framework\TestCase;
 class InstallCommandTest extends TestCase
 {
     private string $directory;
-    private string $stub;
+    private string $createStub;
+    private string $additiveStub;
 
     protected function setUp(): void
     {
@@ -17,8 +18,8 @@ class InstallCommandTest extends TestCase
         $this->directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ln-starter-' . bin2hex(random_bytes(8));
         mkdir($this->directory, 0700, true);
 
-        $this->stub = $this->directory . DIRECTORY_SEPARATOR . 'users.stub';
-        file_put_contents($this->stub, 'replacement');
+        $this->createStub = $this->file('create.stub', 'ln create schema');
+        $this->additiveStub = $this->file('additive.stub', 'ln additive schema');
     }
 
     protected function tearDown(): void
@@ -36,47 +37,83 @@ class InstallCommandTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_existing_users_migration_is_unchanged_without_force(): void
+    public function test_fresh_laravel_users_migration_is_untouched_and_additive_migration_is_published(): void
     {
-        $existing = $this->migration('2026_01_01_000000_create_users_table.php', 'custom schema');
+        $existing = $this->migration('0001_01_01_000000_create_users_table.php', 'laravel schema');
 
-        $result = (new TestableInstallCommand())->publishFiles($this->directory, $this->stub, false);
+        $command = new TestableInstallCommand();
+        $plan = $command->planFiles($this->directory, $this->createStub, $this->additiveStub, false);
+        $status = $command->applyPlan($plan);
 
-        $this->assertSame('skipped', $result['status']);
-        $this->assertSame('custom schema', file_get_contents($existing));
+        $this->assertSame('published', $status);
+        $this->assertSame('additive', $plan['kind']);
+        $this->assertSame('laravel schema', file_get_contents($existing));
+        $this->assertSame('ln additive schema', file_get_contents($plan['target']));
     }
 
-    public function test_multiple_users_migrations_are_never_changed_even_with_force(): void
+    public function test_multiple_users_migrations_are_untouched_and_do_not_block_install(): void
     {
-        $first = $this->migration('2026_01_01_000000_create_users_table.php', 'first');
-        $second = $this->migration('2026_01_02_000000_create_users_table.php', 'second');
+        $first = $this->migration('2025_01_01_000000_create_users_table.php', 'first');
+        $second = $this->migration('2026_01_01_000000_create_users_table.php', 'second');
 
-        $result = (new TestableInstallCommand())->publishFiles($this->directory, $this->stub, true);
+        $command = new TestableInstallCommand();
+        $plan = $command->planFiles($this->directory, $this->createStub, $this->additiveStub, true);
+        $status = $command->applyPlan($plan);
 
-        $this->assertSame('conflict', $result['status']);
+        $this->assertSame('published', $status);
+        $this->assertCount(2, $plan['existing']);
         $this->assertSame('first', file_get_contents($first));
         $this->assertSame('second', file_get_contents($second));
+        $this->assertSame('ln additive schema', file_get_contents($plan['target']));
     }
 
-    public function test_force_replaces_exactly_one_existing_users_migration(): void
+    public function test_existing_additive_migration_is_skipped_without_force(): void
     {
-        $existing = $this->migration('2026_01_01_000000_create_users_table.php', 'custom schema');
+        $this->migration('0001_01_01_000000_create_users_table.php', 'laravel schema');
+        $additive = $this->migration(
+            '0001_01_01_000001_add_ln_starter_names_to_users_table.php',
+            'consumer customisation'
+        );
 
-        $result = (new TestableInstallCommand())->publishFiles($this->directory, $this->stub, true);
+        $command = new TestableInstallCommand();
+        $plan = $command->planFiles($this->directory, $this->createStub, $this->additiveStub, false);
 
-        $this->assertSame('replaced', $result['status']);
-        $this->assertSame('replacement', file_get_contents($existing));
+        $this->assertSame('skipped', $command->applyPlan($plan));
+        $this->assertSame('consumer customisation', file_get_contents($additive));
     }
 
-    public function test_new_users_migration_is_published_when_none_exists(): void
+    public function test_force_replaces_only_the_package_additive_migration(): void
     {
-        $result = (new TestableInstallCommand())->publishFiles($this->directory, $this->stub, false);
+        $existing = $this->migration('0001_01_01_000000_create_users_table.php', 'laravel schema');
+        $additive = $this->migration(
+            '0001_01_01_000001_add_ln_starter_names_to_users_table.php',
+            'old additive schema'
+        );
 
-        $this->assertSame('published', $result['status']);
-        $this->assertSame('replacement', file_get_contents($result['target']));
+        $command = new TestableInstallCommand();
+        $plan = $command->planFiles($this->directory, $this->createStub, $this->additiveStub, true);
+
+        $this->assertSame('replaced', $command->applyPlan($plan));
+        $this->assertSame('laravel schema', file_get_contents($existing));
+        $this->assertSame('ln additive schema', file_get_contents($additive));
+    }
+
+    public function test_create_users_migration_is_published_when_none_exists(): void
+    {
+        $command = new TestableInstallCommand();
+        $plan = $command->planFiles($this->directory, $this->createStub, $this->additiveStub, false);
+
+        $this->assertSame('published', $command->applyPlan($plan));
+        $this->assertSame('create', $plan['kind']);
+        $this->assertSame('ln create schema', file_get_contents($plan['target']));
     }
 
     private function migration(string $name, string $contents): string
+    {
+        return $this->file($name, $contents);
+    }
+
+    private function file(string $name, string $contents): string
     {
         $path = $this->directory . DIRECTORY_SEPARATOR . $name;
         file_put_contents($path, $contents);
@@ -87,8 +124,17 @@ class InstallCommandTest extends TestCase
 
 class TestableInstallCommand extends InstallCommand
 {
-    public function publishFiles(string $migrationsPath, string $stub, bool $force): array
+    public function planFiles(
+        string $migrationsPath,
+        string $createStub,
+        string $additiveStub,
+        bool $force
+    ): array {
+        return $this->planUsersMigrationFiles($migrationsPath, $createStub, $additiveStub, $force);
+    }
+
+    public function applyPlan(array $plan): string
     {
-        return $this->publishUsersMigrationFiles($migrationsPath, $stub, $force);
+        return $this->applyUsersMigrationPlan($plan);
     }
 }

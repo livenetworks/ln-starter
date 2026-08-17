@@ -17,7 +17,6 @@ class AuthenticateWithSanctumTest extends TestCase
         $guard->shouldReceive('user')->once()->andReturn($user);
 
         Auth::shouldReceive('guard')->once()->with('sanctum')->andReturn($guard);
-        Auth::shouldReceive('shouldUse')->once()->with('sanctum');
 
         $request = Request::create('/profile', 'GET');
         $middleware = new AuthenticateWithSanctum();

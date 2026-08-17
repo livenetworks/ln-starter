@@ -93,7 +93,9 @@
 	<script>
 		const stateEl = document.getElementById('state');
 		const timeoutMsg = document.getElementById('timeout-message');
-		const loginUrl = '{{ route('login') }}';
+		const loginUrl = @json(route('login'));
+		const statusUrl = @json(route('magic.status'));
+		const csrfToken = @json(csrf_token());
 		const MAX_ATTEMPTS = {{ config('ln-starter.auth.token_expiry', 15) * 30 }};
 		let attempts = 0;
 
@@ -117,9 +119,14 @@
 			}
 
 			try {
-				const r = await fetch('{{ route('magic.status') }}', {
+				const r = await fetch(statusUrl, {
+					method: 'POST',
 					credentials: 'include',
-					headers: { 'X-Requested-With': 'XMLHttpRequest' }
+					headers: {
+						'Accept': 'application/json',
+						'X-CSRF-TOKEN': csrfToken,
+						'X-Requested-With': 'XMLHttpRequest'
+					}
 				});
 				const j = await r.json();
 

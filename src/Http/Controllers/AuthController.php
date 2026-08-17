@@ -3,6 +3,7 @@
 namespace LiveNetworks\LnStarter\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Session;
@@ -13,6 +14,8 @@ use LiveNetworks\LnStarter\DTOs\Message;
 use LiveNetworks\LnStarter\Http\LNController;
 use LiveNetworks\LnStarter\Mail\MagicLinkMail;
 use LiveNetworks\LnStarter\Models\MagicLinkToken;
+use Laravel\Sanctum\PersonalAccessToken;
+use Throwable;
 
 class AuthController extends LNController
 {
@@ -94,7 +97,7 @@ class AuthController extends LNController
     }
 
     /**
-     * Poll endpoint — returns JSON with approval status.
+     * CSRF-protected poll endpoint — returns JSON with approval status.
      */
     public function magicStatus(Request $request)
     {
@@ -125,14 +128,26 @@ class AuthController extends LNController
             $response = response()->json([
                 'ok'       => true,
                 'redirect' => route($homeRoute),
-                'token'    => $sanctumToken,
                 'user'     => [
                     'id'    => $user->id,
                     'email' => $user->email,
                 ],
             ]);
 
-            $response->cookie('auth_token', $sanctumToken, 0, '/', null, false, true);
+            $secureCookie = app()->environment('production')
+                || (bool) config('session.secure', false);
+
+            $response->cookie(
+                'auth_token',
+                $sanctumToken,
+                0,
+                config('session.path', '/'),
+                config('session.domain'),
+                $secureCookie,
+                true,
+                false,
+                config('session.same_site', 'lax') ?? 'lax'
+            );
 
             return $response;
         }
@@ -175,17 +190,22 @@ class AuthController extends LNController
     }
 
     /**
-     * Revoke the current Sanctum token and redirect to login.
+     * Revoke the current Sanctum token, end the web session, and redirect.
      */
     public function logout(Request $request)
     {
-        if (!$request->user()) {
-            return redirect()->route('login')
-                ->withCookie(cookie()->forget('auth_token'));
-        }
+        $accessToken = $request->user()?->currentAccessToken();
+
+        // End the browser session first so local logout succeeds even if token
+        // revocation later encounters a database failure.
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
         try {
-            $request->user()->currentAccessToken()?->delete();
+            if ($accessToken instanceof PersonalAccessToken) {
+                $accessToken->delete();
+            }
 
             $message = new Message('success', __('Success'), __('Logout successful'));
 
@@ -193,8 +213,10 @@ class AuthController extends LNController
                 ->withCookie(cookie()->forget('auth_token'))
                 ->with('message', $message);
 
-        } catch (\Exception $e) {
-            $message = new Message('error', __('Logout failed'), $e->getMessage());
+        } catch (Throwable $e) {
+            report($e);
+
+            $message = new Message('error', __('Logout failed'), __('Please try again.'));
             return redirect()->route('login')
                 ->withCookie(cookie()->forget('auth_token'))
                 ->with('message', $message);

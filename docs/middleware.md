@@ -72,11 +72,11 @@ Route::middleware(['cookie.auth', 'sanctum.token'])->group(function () {
 
 **Alias:** `disable-csrf`
 
-Marker middleware — does nothing itself. Its presence on a route signals `VerifyCsrfToken` to skip CSRF validation for that route.
+Marker middleware — does nothing itself. `VerifyCsrfToken` honors only the `bearer` mode and only when the request contains an explicit `Authorization: Bearer ...` header.
 
 ```php
-Route::middleware(['auth:sanctum', 'disable-csrf'])->group(function () {
-    // Authorization-header bearer-token routes without browser cookie auth
+Route::middleware(['auth:sanctum', 'disable-csrf:bearer'])->group(function () {
+    // Authorization-header bearer-token routes
     Route::post('/api/members', [MemberController::class, 'store']);
 });
 ```
@@ -84,16 +84,13 @@ Route::middleware(['auth:sanctum', 'disable-csrf'])->group(function () {
 ### When to use
 
 - API routes authenticated exclusively via an `Authorization` bearer token
-- Webhook endpoints that independently verify the provider signature
-- Any route where CSRF protection is handled by other means
-
-Do not apply `disable-csrf` to session-authenticated routes or routes that authenticate through an `auth_token` browser cookie. Those credentials are sent automatically by the browser and require CSRF protection.
+Do not use this marker for webhooks; register webhook exclusions through Laravel's CSRF exception configuration and independently verify the provider signature. A bare `disable-csrf`, a session-authenticated request, or a bearer header derived from the `auth_token` cookie does not bypass CSRF.
 
 ## VerifyCsrfToken
 
 **No alias** — replaces Laravel's built-in CSRF middleware.
 
-Extends Laravel's `ValidateCsrfToken` with one explicit skip condition: routes carrying the `disable-csrf` middleware marker. Authentication by itself never disables CSRF protection.
+Extends Laravel's `ValidateCsrfToken` with one explicit skip condition: routes carrying `disable-csrf:bearer` while the request also carries an Authorization bearer header. Authentication by itself never disables CSRF protection.
 
 ### Registration
 

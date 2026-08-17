@@ -8,6 +8,8 @@ use Symfony\Component\HttpFoundation\Response;
 
 class AuthorizationFromCookie
 {
+    public const REQUEST_ATTRIBUTE = 'ln_starter.authorization_from_cookie';
+
     /**
      * Bridge auth_token cookie to Authorization header.
      *
@@ -21,6 +23,7 @@ class AuthorizationFromCookie
 
         if ($sanctumToken && !$request->header('Authorization')) {
             $request->headers->set('Authorization', 'Bearer ' . $sanctumToken);
+            $request->attributes->set(self::REQUEST_ATTRIBUTE, true);
         }
 
         return $next($request);

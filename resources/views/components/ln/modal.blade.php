@@ -6,13 +6,21 @@
 	'method' => 'POST',
 ])
 
+@php($formMethod = strtoupper($method))
+
 <div class="ln-modal" id="{{ $id }}">
 	<form
 		@if($action)
 			action="{{ $action }}"
-			method="{{ $method === 'POST' ? 'POST' : 'GET' }}"
+			method="{{ $formMethod === 'GET' ? 'GET' : 'POST' }}"
 		@endif
 		data-ln-ajax>
+		@if($formMethod !== 'GET')
+			@csrf
+		@endif
+		@if(!in_array($formMethod, ['GET', 'POST'], true))
+			@method($formMethod)
+		@endif
 
 		<header>
 			<h3>{{ $title }}</h3>

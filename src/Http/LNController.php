@@ -16,7 +16,7 @@ class LNController extends Controller
      */
     protected function user()
     {
-        return auth()->user();
+        return request()->user();
     }
 
     /**

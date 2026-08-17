@@ -9,8 +9,8 @@ use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken as BaseValidateCsrfT
  *
  * Authentication is not a substitute for CSRF protection. Session and cookie
  * authenticated requests must still prove that the request originated from
- * the application. Only routes that explicitly carry the 'disable-csrf'
- * marker are excluded (for example, bearer-token APIs or webhooks).
+ * the application. Only routes carrying the 'disable-csrf:bearer' marker and
+ * an explicit Authorization bearer token are excluded.
  *
  * Register by replacing Laravel's default in bootstrap/app.php:
  *
@@ -25,13 +25,16 @@ class VerifyCsrfToken extends BaseValidateCsrfToken
 {
     protected function inExceptArray($request): bool
     {
-        // Check if route has 'disable-csrf' middleware assigned
         $route = $request->route();
 
         if ($route) {
             $middleware = $route->gatherMiddleware();
 
-            if (in_array('disable-csrf', $middleware)) {
+            if (
+                in_array('disable-csrf:bearer', $middleware, true)
+                && $request->bearerToken()
+                && !$request->attributes->get(AuthorizationFromCookie::REQUEST_ATTRIBUTE, false)
+            ) {
                 return true;
             }
         }

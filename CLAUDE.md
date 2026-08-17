@@ -20,7 +20,7 @@ LN-Starter is a Laravel foundation package by Live Networks. It provides base cl
 
 6. **Blade components**: `<x-ln.toast />` renders session flash messages (success/errors) as dismissible toasts. `<x-ln.modal />` renders a modal dialog with form wrapper and AJAX submission. Both are auto-registered — no publish needed. See `docs/components.md`.
 
-7. **CSRF strategy**: Session and cookie-authenticated requests remain CSRF-protected. Bearer-token APIs and verified webhooks may explicitly opt out with the `disable-csrf` middleware marker.
+7. **CSRF strategy**: Session and cookie-authenticated requests remain CSRF-protected. Header-authenticated bearer APIs may opt out with `disable-csrf:bearer`; cookie-derived bearer headers are never exempt. Configure verified-webhook exclusions through Laravel's CSRF settings.
 
 8. **Cookie-to-header auth bridge**: `AuthorizationFromCookie` reads `auth_token` from cookies and sets the `Authorization` header for Sanctum.
 

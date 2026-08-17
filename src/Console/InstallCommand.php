@@ -15,6 +15,20 @@ class InstallCommand extends Command
     {
         $force = $this->option('force') ? ['--force' => true] : [];
 
+        try {
+            // Resolve all users-migration decisions before vendor:publish so a
+            // known filesystem problem cannot leave a half-published install.
+            $usersMigrationPlan = $this->planUsersMigrationFiles(
+                database_path('migrations'),
+                __DIR__ . '/../../stubs/create_users_table.stub',
+                __DIR__ . '/../../stubs/add_ln_starter_names_to_users_table.stub',
+                (bool) $this->option('force')
+            );
+        } catch (\RuntimeException $e) {
+            $this->components->error($e->getMessage());
+            return self::FAILURE;
+        }
+
         $steps = [
             ['tag' => 'ln-starter-config',     'label' => 'Config'],
             ['tag' => 'ln-starter-layouts',    'label' => 'Layouts'],
@@ -33,10 +47,7 @@ class InstallCommand extends Command
             $this->components->info($step['label'] . ' published.');
         }
 
-        if (!$this->publishUsersMigration()) {
-            $this->components->error('LN-Starter installation stopped because the users migration is ambiguous.');
-            return self::FAILURE;
-        }
+        $this->publishUsersMigration($usersMigrationPlan);
 
         $this->publishUserModel();
         $this->injectViteEntry('resources/scss/auth.scss');
@@ -113,73 +124,129 @@ class InstallCommand extends Command
         $this->components->info('User model published (HasApiTokens + first_name/last_name).');
     }
 
-    protected function publishUsersMigration(): bool
+    /**
+     * @param array{action: 'skip'|'publish', target: string, stub: string, existing: array<int, string>, kind: 'create'|'additive', replacing: bool} $plan
+     */
+    protected function publishUsersMigration(array $plan): void
     {
-        $migrationsPath = database_path('migrations');
-        $stub           = __DIR__ . '/../../stubs/create_users_table.stub';
-
-        $result = $this->publishUsersMigrationFiles(
-            $migrationsPath,
-            $stub,
-            (bool) $this->option('force')
-        );
-
-        if ($result['status'] === 'conflict') {
-            $this->components->error('Multiple users migrations found; none were changed:');
-            foreach ($result['files'] as $path) {
+        if (count($plan['existing']) > 1) {
+            $this->components->warn('Multiple create-users migrations were found and left unchanged:');
+            foreach ($plan['existing'] as $path) {
                 $this->line('  - ' . basename($path));
             }
-            $this->components->warn('Resolve the migration conflict manually and run the command again.');
-            return false;
         }
 
-        if ($result['status'] === 'skipped') {
+        $status = $this->applyUsersMigrationPlan($plan);
+
+        if ($status === 'skipped') {
             $this->components->warn(
-                'Users migration already exists and was left unchanged: ' . basename($result['target'])
+                'LN-Starter users migration already exists and was left unchanged: ' . basename($plan['target'])
             );
-            $this->components->warn('Use --force only if you intentionally want to replace this file.');
-            return true;
+            return;
         }
 
-        $verb = $result['status'] === 'replaced' ? 'replaced' : 'published';
-        $this->components->info('Users migration ' . $verb . ': ' . basename($result['target']));
-
-        return true;
+        $label = $plan['kind'] === 'create' ? 'Users migration' : 'Additive users migration';
+        $verb = $status === 'replaced' ? 'replaced' : 'published';
+        $this->components->info($label . ' ' . $verb . ': ' . basename($plan['target']));
     }
 
     /**
-     * Publish the users migration without deleting or ambiguously replacing files.
-     *
-     * @return array{status: 'conflict'|'skipped'|'replaced'|'published', target?: string, files?: array<int, string>}
+     * @param array{action: 'skip'|'publish', target: string, stub: string, existing: array<int, string>, kind: 'create'|'additive', replacing: bool} $plan
+     * @return 'skipped'|'published'|'replaced'
      */
-    protected function publishUsersMigrationFiles(string $migrationsPath, string $stub, bool $force): array
+    protected function applyUsersMigrationPlan(array $plan): string
     {
+        if ($plan['action'] === 'skip') {
+            return 'skipped';
+        }
+
+        if (!copy($plan['stub'], $plan['target'])) {
+            throw new \RuntimeException('Failed to publish users migration: ' . $plan['target']);
+        }
+
+        return $plan['replacing'] ? 'replaced' : 'published';
+    }
+
+    /**
+     * Plan a non-destructive users migration publish.
+     *
+     * Existing create-users migrations always remain consumer-owned. When one
+     * or more exist, LN-Starter publishes a separate additive migration.
+     *
+     * @return array{action: 'skip'|'publish', target: string, stub: string, existing: array<int, string>, kind: 'create'|'additive', replacing: bool}
+     */
+    protected function planUsersMigrationFiles(
+        string $migrationsPath,
+        string $createStub,
+        string $additiveStub,
+        bool $force
+    ): array {
+        if (!is_dir($migrationsPath) || !is_writable($migrationsPath)) {
+            throw new \RuntimeException('Migrations directory is missing or not writable: ' . $migrationsPath);
+        }
+
+        foreach ([$createStub, $additiveStub] as $stub) {
+            if (!is_file($stub) || !is_readable($stub)) {
+                throw new \RuntimeException('Migration stub is missing or not readable: ' . $stub);
+            }
+        }
+
         $existing = glob($migrationsPath . '/*_create_users_table.php') ?: [];
         sort($existing);
 
-        if (count($existing) > 1) {
-            return ['status' => 'conflict', 'files' => $existing];
+        if ($existing === []) {
+            return [
+                'action'   => 'publish',
+                'target'   => $migrationsPath . '/0001_01_01_000000_create_users_table.php',
+                'stub'     => $createStub,
+                'existing' => [],
+                'kind'     => 'create',
+                'replacing' => false,
+            ];
         }
 
-        if (count($existing) === 1) {
-            $target = $existing[0];
+        $publishedAdditive = glob($migrationsPath . '/*_add_ln_starter_names_to_users_table.php') ?: [];
+        sort($publishedAdditive);
 
-            if (!$force) {
-                return ['status' => 'skipped', 'target' => $target];
+        if (count($publishedAdditive) > 1) {
+            throw new \RuntimeException(
+                'Multiple LN-Starter additive users migrations found; resolve them before installing.'
+            );
+        }
+
+        $target = $publishedAdditive[0]
+            ?? $migrationsPath . '/' . $this->nextMigrationTimestamp($migrationsPath)
+                . '_add_ln_starter_names_to_users_table.php';
+
+        return [
+            'action'   => file_exists($target) && !$force ? 'skip' : 'publish',
+            'target'   => $target,
+            'stub'     => $additiveStub,
+            'existing' => $existing,
+            'kind'     => 'additive',
+            'replacing' => file_exists($target),
+        ];
+    }
+
+    /**
+     * Return a migration timestamp ordered after every migration currently in
+     * the application, including consumer migrations with future timestamps.
+     */
+    protected function nextMigrationTimestamp(string $migrationsPath): string
+    {
+        $latest = date('Y_m_d_His');
+
+        foreach (glob($migrationsPath . '/*.php') ?: [] as $migration) {
+            if (preg_match('/^(\d{4}_\d{2}_\d{2}_\d{6})_/', basename($migration), $matches)) {
+                $latest = max($latest, $matches[1]);
             }
-
-            if (!copy($stub, $target)) {
-                throw new \RuntimeException('Failed to replace users migration: ' . $target);
-            }
-
-            return ['status' => 'replaced', 'target' => $target];
         }
 
-        $target = $migrationsPath . '/0001_01_01_000000_create_users_table.php';
-        if (!copy($stub, $target)) {
-            throw new \RuntimeException('Failed to publish users migration: ' . $target);
+        $date = \DateTimeImmutable::createFromFormat('!Y_m_d_His', $latest);
+        if (!$date) {
+            throw new \RuntimeException('Unable to generate an additive users migration timestamp.');
         }
 
-        return ['status' => 'published', 'target' => $target];
+        return $date->modify('+1 second')->format('Y_m_d_His');
     }
 }

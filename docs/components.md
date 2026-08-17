@@ -2,7 +2,7 @@
 
 ## Overview
 
-LN-Starter ships two Blade components — `<x-ln.toast />` and `<x-ln.modal />`. They are registered automatically when the package is installed (no publish needed) and are available in any Blade view.
+LN-Starter ships three Blade components — `<x-ln.toast />`, `<x-ln.modal />`, and `<x-ln.logout-form />`. They are registered automatically when the package is installed (no publish needed) and are available in any Blade view.
 
 Both components render minimal HTML that `ln-acme` JS hydrates into the full UI. The Blade templates output `data-*` attributes; ln-acme's JS builds the card structure, icons, animations, and dismiss behavior.
 
@@ -85,9 +85,8 @@ Renders a modal dialog with a `<form>` as the content root. Follows `ln-acme`'s 
 ### Usage
 
 ```blade
-<x-ln.modal id="delete-member" title="Delete member?" submitText="Delete" action="/members/5" method="POST">
+<x-ln.modal id="delete-member" title="Delete member?" submitText="Delete" action="/members/5" method="DELETE">
     <p>Are you sure you want to delete this member?</p>
-    @method('DELETE')
 </x-ln.modal>
 ```
 
@@ -105,20 +104,21 @@ Open the modal with a trigger button:
 | `title` | string | `''` | Header title text |
 | `submitText` | string | `Submit` | Submit button label |
 | `action` | string\|null | `null` | Form action URL. When `null`, no `action`/`method` attributes are rendered |
-| `method` | string | `POST` | HTTP method (`POST` or `GET`). For PUT/PATCH/DELETE, use `POST` with `@method()` |
+| `method` | string | `POST` | HTTP method. Non-GET forms automatically include `@csrf`; PUT/PATCH/DELETE are automatically method-spoofed |
 
 ### Rendered HTML
 
 ```html
 <div class="ln-modal" id="delete-member">
     <form action="/members/5" method="POST" data-ln-ajax>
+        <input type="hidden" name="_token" value="...">
+        <input type="hidden" name="_method" value="DELETE">
         <header>
             <h3>Delete member?</h3>
             <button type="button" class="ln-icon-close" data-ln-modal-close aria-label="Close"></button>
         </header>
         <main>
             <p>Are you sure?</p>
-            <input type="hidden" name="_method" value="DELETE">
         </main>
         <footer>
             <button type="button" data-ln-modal-close>Cancel</button>
@@ -130,6 +130,7 @@ Open the modal with a trigger button:
 
 Key points:
 - `<form>` is always the direct child of `.ln-modal` — ln-acme CSS targets `.ln-modal > form`
+- Non-GET submissions include a CSRF token automatically
 - `header`, `main`, `footer` are semantic HTML tags — no BEM classes needed
 - Close button uses `ln-icon-close` class and `data-ln-modal-close` attribute
 - Footer buttons get `@include btn` styling automatically from ln-acme CSS
@@ -144,10 +145,19 @@ The form has `data-ln-ajax`, which means `ln-acme` JS intercepts the form submis
 #### Confirmation dialog
 
 ```blade
-<x-ln.modal id="confirm-delete" title="Confirm deletion" submitText="Delete" action="{{ route('members.destroy', $member) }}" method="POST">
-    @method('DELETE')
+<x-ln.modal id="confirm-delete" title="Confirm deletion" submitText="Delete" action="{{ route('members.destroy', $member) }}" method="DELETE">
     <p>{{ __('This action cannot be undone.') }}</p>
 </x-ln.modal>
+```
+
+## Logout form — `<x-ln.logout-form />`
+
+Renders the package's POST logout route with a CSRF token. Use this component instead of a logout link or an unprotected fetch request.
+
+```blade
+<x-ln.logout-form class="nav-logout" button-class="nav-logout__button">
+    {{ __('Sign out') }}
+</x-ln.logout-form>
 ```
 
 #### Inline form

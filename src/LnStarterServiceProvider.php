@@ -67,6 +67,7 @@ class LnStarterServiceProvider extends ServiceProvider
 
         Blade::component('ln.toast', \LiveNetworks\LnStarter\View\Components\Toast::class);
         Blade::component('ln.modal', \LiveNetworks\LnStarter\View\Components\Modal::class);
+        Blade::component('ln.logout-form', \LiveNetworks\LnStarter\View\Components\LogoutForm::class);
         Blade::component('ln.lang-switcher', \LiveNetworks\LnStarter\View\Components\LangSwitcher::class);
     }
 
