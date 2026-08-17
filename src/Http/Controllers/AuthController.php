@@ -15,6 +15,10 @@ use LiveNetworks\LnStarter\DTOs\Message;
 use LiveNetworks\LnStarter\Http\LNController;
 use LiveNetworks\LnStarter\Jobs\ProcessMagicLoginRequest;
 use LiveNetworks\LnStarter\Models\MagicLoginAttempt;
+use LiveNetworks\LnStarter\Security\Outcome;
+use LiveNetworks\LnStarter\Security\ReasonCode;
+use LiveNetworks\LnStarter\Security\SecurityEventName;
+use LiveNetworks\LnStarter\Security\Stopwatch;
 use LiveNetworks\LnStarter\Support\MagicLoginProofs;
 use LiveNetworks\LnStarter\Support\MagicLoginStateMachine;
 use LiveNetworks\LnStarter\Support\SecurityEventLogger;
@@ -50,12 +54,28 @@ class AuthController extends LNController
         $email = $this->proofs->canonicalEmail($validated['email']);
         $emailKey = $this->proofs->emailKey($email);
         $requestId = $this->logger->requestId();
+        $stopwatch = Stopwatch::start();
 
-        if ($this->creationRateLimited($request, $emailKey)) {
-            $this->logger->record('auth.magic.request.rate_limited', [
-                'request_id' => $requestId,
-                'outcome' => 'rate_limited',
-            ]);
+        // Pseudonymous and versioned: correlates repeated attempts by the same
+        // address without ever writing the address itself.
+        $principalKey = $this->logger->principalKey('email:' . $email);
+
+        $this->logger->event(
+            eventName: SecurityEventName::REQUEST_RECEIVED,
+            outcome: Outcome::Pending,
+            principalKey: $principalKey,
+            authMethod: 'magic_link',
+        );
+
+        if ($limitReason = $this->creationRateLimitReason($request, $emailKey)) {
+            $this->logger->event(
+                eventName: SecurityEventName::RATE_LIMITED,
+                outcome: Outcome::Rejected,
+                reasonCode: $limitReason,
+                principalKey: $principalKey,
+                durationMs: $stopwatch->elapsedMs(),
+                authMethod: 'magic_link',
+            );
             $this->normalizeRequestTiming($startedAt);
 
             return $this->genericRequestResponse($request);
@@ -89,22 +109,33 @@ class AuthController extends LNController
                 app()->getLocale(),
             );
 
-            $this->logger->record('auth.magic.request.accepted', [
-                'attempt_id' => $attemptId,
-                'request_id' => $requestId,
-                'outcome' => 'accepted',
-            ]);
-            $this->logger->record('auth.magic.delivery.queued', [
-                'attempt_id' => $attemptId,
-                'request_id' => $requestId,
-                'outcome' => 'queued',
-            ]);
-        } catch (Throwable) {
-            $this->logger->record('auth.magic.delivery.failed', [
-                'attempt_id' => $attemptId,
-                'request_id' => $requestId,
-                'outcome' => 'dispatch_failed',
-            ]);
+            $this->logger->event(
+                eventName: SecurityEventName::REQUEST_ACCEPTED,
+                outcome: Outcome::Success,
+                principalKey: $principalKey,
+                attemptId: $attemptId,
+                durationMs: $stopwatch->elapsedMs(),
+                authMethod: 'magic_link',
+            );
+            $this->logger->event(
+                eventName: SecurityEventName::DELIVERY_QUEUED,
+                outcome: Outcome::Pending,
+                context: ['queue' => (string) config('queue.default')],
+                principalKey: $principalKey,
+                attemptId: $attemptId,
+                authMethod: 'magic_link',
+            );
+        } catch (Throwable $exception) {
+            $this->logger->event(
+                eventName: SecurityEventName::DELIVERY_FAILED,
+                outcome: Outcome::Failure,
+                reasonCode: ReasonCode::MailTransportFailure,
+                context: ['throwable_class' => $exception::class],
+                principalKey: $principalKey,
+                attemptId: $attemptId,
+                durationMs: $stopwatch->elapsedMs(),
+                authMethod: 'magic_link',
+            );
         }
 
         $this->normalizeRequestTiming($startedAt);
@@ -163,15 +194,20 @@ class AuthController extends LNController
 
         if ($attempt) {
             $this->storeConfirmationContext($request, $contextId, $attempt);
-            $this->logger->record('auth.magic.link.opened', [
-                'attempt_id' => $attempt->getKey(),
-                'user_id' => $attempt->user_id,
-                'outcome' => 'opened',
-            ]);
+            // GET only establishes context — it never consumes or authenticates.
+            $this->logger->event(
+                eventName: SecurityEventName::LINK_OPENED,
+                outcome: Outcome::Pending,
+                principalKey: $this->logger->principalKey('user:' . $attempt->user_id),
+                attemptId: $attempt->getKey(),
+                authMethod: 'magic_link',
+            );
         } else {
-            $this->logger->record('auth.magic.proof.rejected', [
-                'outcome' => 'invalid_link',
-            ]);
+            // A terminal (already used / revoked) attempt is a replay; a
+            // completely unknown hash is just an invalid token.
+            $known = MagicLoginAttempt::query()->where('link_token_hash', $linkHash)->first();
+
+            $this->stateMachine->reportReplay($known, 'magic_link');
         }
 
         return redirect()
@@ -243,16 +279,27 @@ class AuthController extends LNController
 
     public function logout(Request $request): RedirectResponse
     {
+        $stopwatch = Stopwatch::start();
         $userId = $request->user()?->getAuthIdentifier();
 
         Auth::guard('web')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        $this->logger->record('auth.logout.succeeded', [
-            'user_id' => $userId,
-            'outcome' => 'succeeded',
-        ]);
+        // A logout POST with no active session is a distinct signal: it is what
+        // a stale tab or a replayed form looks like, and it should not be
+        // reported as a successful session termination.
+        $this->logger->event(
+            eventName: $userId === null
+                ? SecurityEventName::SESSION_TERMINATE_NOOP
+                : SecurityEventName::SESSION_TERMINATED,
+            outcome: Outcome::Success,
+            reasonCode: $userId === null ? ReasonCode::NoActiveSession : null,
+            principalKey: $userId === null ? null : $this->logger->principalKey('user:' . $userId),
+            durationMs: $stopwatch->elapsedMs(),
+            authMethod: 'session',
+            guard: 'web',
+        );
 
         return redirect()->route('login')
             ->with('message', new Message('success', __('Success'), __('Logout successful')));
@@ -264,6 +311,10 @@ class AuthController extends LNController
         string $attemptId,
         string $via
     ): JsonResponse|RedirectResponse {
+        $stopwatch = Stopwatch::start();
+        $principalKey = $this->logger->principalKey('user:' . $user->getAuthIdentifier());
+        $authMethod = $via === 'code' ? 'magic_code' : 'magic_link';
+
         try {
             Auth::guard('web')->login($user);
             $request->session()->regenerate();
@@ -275,24 +326,33 @@ class AuthController extends LNController
             $this->restoreLocaleDefaults();
             $redirect = route(config('ln-starter.auth.home_route', 'home'));
 
-            $this->logger->record('auth.magic.login.succeeded', [
-                'attempt_id' => $attemptId,
-                'user_id' => $user->getAuthIdentifier(),
-                'outcome' => 'succeeded',
-                'consumed_via' => $via,
-            ]);
+            $this->logger->event(
+                eventName: SecurityEventName::SESSION_CREATED,
+                outcome: Outcome::Success,
+                context: ['consumed_via' => $via],
+                principalKey: $principalKey,
+                attemptId: $attemptId,
+                durationMs: $stopwatch->elapsedMs(),
+                authMethod: $authMethod,
+                guard: 'web',
+            );
 
             if ($request->wantsJson()) {
                 return response()->json(['ok' => true, 'redirect' => $redirect]);
             }
 
             return redirect()->to($redirect);
-        } catch (Throwable) {
-            $this->logger->record('auth.magic.login.failed', [
-                'attempt_id' => $attemptId,
-                'user_id' => $user->getAuthIdentifier(),
-                'outcome' => 'failed',
-            ]);
+        } catch (Throwable $exception) {
+            $this->logger->event(
+                eventName: SecurityEventName::SESSION_CREATED,
+                outcome: Outcome::Error,
+                context: ['throwable_class' => $exception::class, 'consumed_via' => $via],
+                principalKey: $principalKey,
+                attemptId: $attemptId,
+                durationMs: $stopwatch->elapsedMs(),
+                authMethod: $authMethod,
+                guard: 'web',
+            );
 
             return $this->proofFailureResponse($request, 'login');
         }
@@ -356,13 +416,41 @@ class AuthController extends LNController
         $request->session()->put(self::CONFIRMATION_SESSION_KEY, $contexts);
     }
 
+    /**
+     * Which throttle tripped, so the audit trail can distinguish a targeted
+     * email flood from a noisy shared IP. The public response is identical
+     * either way.
+     */
+    private function creationRateLimitReason(Request $request, string $emailKey): ?ReasonCode
+    {
+        return $this->limitedBy([
+            ['auth-create-email:' . $emailKey, 5, ReasonCode::RateLimitedEmail],
+            ['auth-create-ip:' . $this->ipKey($request), 20, ReasonCode::RateLimitedIp],
+            ['auth-create-session:' . $this->sessionKey($request), 5, ReasonCode::RateLimitedSession],
+        ], 900);
+    }
+
     private function creationRateLimited(Request $request, string $emailKey): bool
     {
-        return $this->limited([
-            ['auth-create-email:' . $emailKey, 5],
-            ['auth-create-ip:' . $this->ipKey($request), 20],
-            ['auth-create-session:' . $this->sessionKey($request), 5],
-        ], 900);
+        return $this->creationRateLimitReason($request, $emailKey) !== null;
+    }
+
+    /**
+     * @param array<int, array{string, int, ReasonCode}> $limits
+     */
+    private function limitedBy(array $limits, int $decaySeconds): ?ReasonCode
+    {
+        foreach ($limits as [$key, $maxAttempts, $reason]) {
+            if (RateLimiter::tooManyAttempts($key, $maxAttempts)) {
+                return $reason;
+            }
+        }
+
+        foreach ($limits as [$key]) {
+            RateLimiter::hit($key, $decaySeconds);
+        }
+
+        return null;
     }
 
     private function codeRateLimited(Request $request, array $context): bool

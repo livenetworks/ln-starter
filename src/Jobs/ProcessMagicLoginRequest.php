@@ -14,6 +14,11 @@ use Illuminate\Support\Facades\URL;
 use LiveNetworks\LnStarter\Contracts\AuthEligibility;
 use LiveNetworks\LnStarter\Mail\MagicLinkMail;
 use LiveNetworks\LnStarter\Models\MagicLoginAttempt;
+use LiveNetworks\LnStarter\Security\Outcome;
+use LiveNetworks\LnStarter\Security\ReasonCode;
+use LiveNetworks\LnStarter\Security\RequestContext;
+use LiveNetworks\LnStarter\Security\SecurityEventName;
+use LiveNetworks\LnStarter\Security\Stopwatch;
 use LiveNetworks\LnStarter\Support\MagicLoginProofs;
 use LiveNetworks\LnStarter\Support\SecurityEventLogger;
 use RuntimeException;
@@ -41,18 +46,30 @@ class ProcessMagicLoginRequest implements ShouldQueue, ShouldBeEncrypted
     public function handle(
         AuthEligibility $eligibility,
         MagicLoginProofs $proofs,
-        SecurityEventLogger $logger
+        SecurityEventLogger $logger,
+        ?RequestContext $context = null,
     ): void {
         app()->setLocale($this->locale);
         URL::defaults(['locale' => $this->locale]);
 
+        // Adopt the correlation identity of the HTTP request that queued this
+        // job. Without this the delivery events would be orphaned and could not
+        // be joined back to the login attempt that caused them. The job still
+        // gets its own request_id so retries stay distinguishable.
+        $context ??= app(RequestContext::class);
+        $context->startJob($this->requestId);
+
+        $principalKey = $logger->principalKey('email:' . $this->canonicalEmail);
+
         if (now()->greaterThanOrEqualTo(CarbonImmutable::parse($this->expiresAt))) {
-            $logger->record('auth.magic.delivery.failed', [
-                'attempt_id' => $this->attemptId,
-                'request_id' => $this->requestId,
-                'outcome' => 'expired_before_delivery',
-                'reason' => 'queue_delay',
-            ]);
+            $logger->event(
+                eventName: SecurityEventName::DELIVERY_FAILED,
+                outcome: Outcome::Failure,
+                reasonCode: ReasonCode::DeliveryWindowExpired,
+                attemptId: $this->attemptId,
+                principalKey: $principalKey,
+                authMethod: 'magic_link',
+            );
             return;
         }
 
@@ -67,11 +84,16 @@ class ProcessMagicLoginRequest implements ShouldQueue, ShouldBeEncrypted
         $codeHash = $proofs->codeHash($this->attemptId, $this->code, $this->pepperId);
 
         if (!$user || !$eligibility->allows($user)) {
-            $logger->record('auth.magic.proof.rejected', [
-                'attempt_id' => $this->attemptId,
-                'request_id' => $this->requestId,
-                'outcome' => 'ineligible',
-            ]);
+            // Internal reason codes may distinguish these two cases; the public
+            // HTTP response deliberately cannot. See ADR 0001.
+            $logger->event(
+                eventName: SecurityEventName::REQUEST_REJECTED,
+                outcome: Outcome::Rejected,
+                reasonCode: $user ? ReasonCode::IneligiblePrincipal : ReasonCode::UnknownPrincipal,
+                attemptId: $this->attemptId,
+                principalKey: $principalKey,
+                authMethod: 'magic_link',
+            );
             return;
         }
 
@@ -90,27 +112,37 @@ class ProcessMagicLoginRequest implements ShouldQueue, ShouldBeEncrypted
             ]
         );
 
+        $stopwatch = Stopwatch::start();
+
         try {
             Mail::to($user->email)
                 ->send(new MagicLinkMail($user, $attempt, $this->linkToken, $this->code));
-        } catch (Throwable) {
-            $logger->record('auth.magic.delivery.failed', [
-                'attempt_id' => $attempt->getKey(),
-                'user_id' => $user->getAuthIdentifier(),
-                'request_id' => $this->requestId,
-                'outcome' => 'failed',
-            ]);
-            // Keep transport exceptions out of logs because their messages may
-            // contain recipient or message data. A generic exception still
-            // triggers the queue's normal retry/failure behavior.
+        } catch (Throwable $exception) {
+            $logger->event(
+                eventName: SecurityEventName::DELIVERY_FAILED,
+                outcome: Outcome::Failure,
+                reasonCode: ReasonCode::MailTransportFailure,
+                // Class only: transport messages routinely embed the recipient
+                // address and parts of the message body.
+                context: ['throwable_class' => $exception::class],
+                principalKey: $principalKey,
+                attemptId: $attempt->getKey(),
+                durationMs: $stopwatch->elapsedMs(),
+                authMethod: 'magic_link',
+            );
+
+            // A generic exception still triggers the queue's retry/failure
+            // behaviour without carrying the original message.
             throw new RuntimeException('Magic login delivery failed.');
         }
 
-        $logger->record('auth.magic.delivery.sent', [
-            'attempt_id' => $attempt->getKey(),
-            'user_id' => $user->getAuthIdentifier(),
-            'request_id' => $this->requestId,
-            'outcome' => 'sent',
-        ]);
+        $logger->event(
+            eventName: SecurityEventName::DELIVERY_SUCCEEDED,
+            outcome: Outcome::Success,
+            principalKey: $principalKey,
+            attemptId: $attempt->getKey(),
+            durationMs: $stopwatch->elapsedMs(),
+            authMethod: 'magic_link',
+        );
     }
 }

@@ -28,8 +28,8 @@ class LnStarterServiceProvider extends ServiceProvider
 
         $this->app->singleton(\LiveNetworks\LnStarter\Support\LocaleManager::class);
         $this->app->singleton(\LiveNetworks\LnStarter\Support\MagicLoginProofs::class);
-        $this->app->singleton(\LiveNetworks\LnStarter\Support\SecurityEventLogger::class);
         $this->app->singleton(\LiveNetworks\LnStarter\Support\AuthV2UpgradeAudit::class);
+        $this->registerSecurityObservability();
         $this->app->bind(
             \LiveNetworks\LnStarter\Contracts\AuthEligibility::class,
             fn ($app) => $app->make(config(
@@ -37,6 +37,44 @@ class LnStarterServiceProvider extends ServiceProvider
                 \LiveNetworks\LnStarter\Support\DefaultAuthEligibility::class
             ))
         );
+    }
+
+    /**
+     * Security observability pipeline.
+     *
+     * The dispatcher is a singleton so that an application can add its own sink
+     * from a service provider:
+     *
+     *   $this->app->make(SecurityEventDispatcher::class)->extend(new SiemSink());
+     */
+    protected function registerSecurityObservability(): void
+    {
+        $this->app->singleton(\LiveNetworks\LnStarter\Security\RequestContext::class);
+        $this->app->singleton(\LiveNetworks\LnStarter\Security\Pseudonymizer::class);
+
+        $this->app->singleton(
+            \LiveNetworks\LnStarter\Security\ContextSanitizer::class,
+            fn () => \LiveNetworks\LnStarter\Security\ContextSanitizer::fromConfig()
+        );
+
+        $this->app->singleton(\LiveNetworks\LnStarter\Security\SecurityEventDispatcher::class, function ($app) {
+            $dispatcher = new \LiveNetworks\LnStarter\Security\SecurityEventDispatcher(
+                $app->make(\LiveNetworks\LnStarter\Security\ContextSanitizer::class),
+                $app->make(\LiveNetworks\LnStarter\Security\RequestContext::class),
+            );
+
+            $dispatcher->extend(new \LiveNetworks\LnStarter\Security\Sinks\LogSink());
+
+            // Opt-in: enabling it without the migration is caught by readiness.
+            if (config('ln-starter.logging.database.enabled', false)) {
+                $dispatcher->extend(new \LiveNetworks\LnStarter\Security\Sinks\DatabaseSink());
+            }
+
+            return $dispatcher;
+        });
+
+        $this->app->singleton(\LiveNetworks\LnStarter\Support\SecurityEventLogger::class);
+        $this->app->singleton(\LiveNetworks\LnStarter\Support\SecurityObservabilityConfiguration::class);
     }
 
     public function boot(): void
@@ -71,6 +109,7 @@ class LnStarterServiceProvider extends ServiceProvider
             'ln.locale'          => \LiveNetworks\LnStarter\Http\Middleware\SetLocale::class,
             'ln.locale.prepare'  => \LiveNetworks\LnStarter\Http\Middleware\PrepareLocale::class,
             'ln.locale.redirect' => \LiveNetworks\LnStarter\Http\Middleware\RedirectToLocale::class,
+            'ln.request-id'      => \LiveNetworks\LnStarter\Http\Middleware\AssignRequestId::class,
         ];
 
         // Project config can add extra aliases or override core ones
@@ -104,7 +143,7 @@ class LnStarterServiceProvider extends ServiceProvider
         if ($locale->multilingual()) {
             // Localized auth routes (names preserved by routes/auth.php).
             Route::prefix('{locale}')
-                ->middleware(['web', 'ln.locale'])
+                ->middleware(['web', 'ln.request-id', 'ln.locale'])
                 ->group(__DIR__ . '/../routes/auth.php');
 
             // Bare /login → negotiate + redirect to /{locale}/login.
@@ -113,7 +152,7 @@ class LnStarterServiceProvider extends ServiceProvider
                 ->get('/login', fn () => abort(404));
         } else {
             // Single-language: exactly as before — zero behavior change.
-            Route::middleware('web')
+            Route::middleware(['web', 'ln.request-id'])
                 ->group(__DIR__ . '/../routes/auth.php');
         }
     }
@@ -123,6 +162,11 @@ class LnStarterServiceProvider extends ServiceProvider
         // Auth v2 uses framework sessions and only needs its own attempt table.
         if (config('ln-starter.auth.enabled', false)) {
             $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/auth-v2');
+        }
+
+        // Audit trail is opt-in, so its table is only loaded when requested.
+        if (config('ln-starter.logging.database.enabled', false)) {
+            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/security');
         }
     }
 
@@ -166,6 +210,12 @@ class LnStarterServiceProvider extends ServiceProvider
             __DIR__ . '/../database/migrations/create_personal_access_tokens_table.php' => database_path('migrations/create_personal_access_tokens_table.php'),
         ], 'ln-starter-sanctum-migrations');
 
+        // Durable audit trail; only needed when the database sink is enabled.
+        $this->publishes([
+            __DIR__ . '/../database/migrations/security/create_ln_security_audit_events_table.php'
+                => database_path('migrations/create_ln_security_audit_events_table.php'),
+        ], 'ln-starter-security-migrations');
+
         // Stubs
         $this->publishes([
             __DIR__ . '/../stubs' => base_path('stubs/ln-starter'),
@@ -186,12 +236,17 @@ class LnStarterServiceProvider extends ServiceProvider
                 \LiveNetworks\LnStarter\Console\AuditAuthV2Command::class,
                 \LiveNetworks\LnStarter\Console\CutoverAuthV2Command::class,
                 \LiveNetworks\LnStarter\Console\CheckAuthV2ReadinessCommand::class,
+                \LiveNetworks\LnStarter\Console\PruneSecurityAuditEventsCommand::class,
             ]);
         }
     }
 
     protected function validateAuthV2Configuration(): void
     {
+        // Cheap, config-only checks. Runs on every boot, so nothing here may
+        // touch the database; deep checks live behind validate(true).
+        $this->app->make(\LiveNetworks\LnStarter\Support\SecurityObservabilityConfiguration::class)->validate();
+
         if (!config('ln-starter.auth.enabled', false)) {
             return;
         }
