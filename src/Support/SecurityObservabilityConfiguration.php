@@ -94,6 +94,15 @@ class SecurityObservabilityConfiguration
                 throw new RuntimeException("LN-Starter logging.{$key} must be a string or null.");
             }
 
+            // Checked against config rather than by resolving: LogManager
+            // swallows an unknown channel and silently substitutes an
+            // emergency logger, so resolution alone can never detect a typo.
+            if (config("logging.channels.{$channel}") === null) {
+                throw new RuntimeException(
+                    "LN-Starter logging.{$key} references log channel [{$channel}], which does not resolve."
+                );
+            }
+
             try {
                 Log::channel($channel);
             } catch (Throwable) {

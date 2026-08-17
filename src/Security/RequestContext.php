@@ -42,6 +42,19 @@ class RequestContext
         return $this->requestId;
     }
 
+    /**
+     * Correlation identity, generating one if nothing has established it yet.
+     *
+     * Events also originate outside HTTP — console commands, schedulers, tests
+     * — and an uncorrelatable audit record is much less useful. Generating
+     * lazily means every event carries an ID without requiring the middleware
+     * to run first.
+     */
+    public function ensureStarted(): string
+    {
+        return $this->requestId ?? $this->startRequest(null);
+    }
+
     public function correlationId(): ?string
     {
         return $this->correlationId;
