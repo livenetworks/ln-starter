@@ -11,11 +11,32 @@ class LnStarterServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(
-            __DIR__ . '/../config/ln-starter.php', 'ln-starter'
-        );
+        $configPath = __DIR__ . '/../config/ln-starter.php';
+
+        // Auth v2 adds nested settings to configs published by auth v1. A
+        // shallow package merge would let the old `auth` array hide peppers,
+        // eligibility and rate-limit defaults, making upgrade boot impossible.
+        if (method_exists($this, 'replaceConfigRecursivelyFrom')) {
+            $this->replaceConfigRecursivelyFrom($configPath, 'ln-starter');
+        } else {
+            $this->mergeConfigFrom($configPath, 'ln-starter');
+            $this->app->make('config')->set('ln-starter', array_replace_recursive(
+                require $configPath,
+                $this->app->make('config')->get('ln-starter', [])
+            ));
+        }
 
         $this->app->singleton(\LiveNetworks\LnStarter\Support\LocaleManager::class);
+        $this->app->singleton(\LiveNetworks\LnStarter\Support\MagicLoginProofs::class);
+        $this->app->singleton(\LiveNetworks\LnStarter\Support\SecurityEventLogger::class);
+        $this->app->singleton(\LiveNetworks\LnStarter\Support\AuthV2UpgradeAudit::class);
+        $this->app->bind(
+            \LiveNetworks\LnStarter\Contracts\AuthEligibility::class,
+            fn ($app) => $app->make(config(
+                'ln-starter.auth.eligibility',
+                \LiveNetworks\LnStarter\Support\DefaultAuthEligibility::class
+            ))
+        );
     }
 
     public function boot(): void
@@ -27,6 +48,7 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->registerMigrations();
         $this->registerPublishing();
         $this->registerCommands();
+        $this->validateAuthV2Configuration();
         $this->publishSkillOnInstall();
     }
 
@@ -98,12 +120,9 @@ class LnStarterServiceProvider extends ServiceProvider
 
     protected function registerMigrations(): void
     {
-        // Sanctum's personal_access_tokens — always needed
-        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
-
-        // Magic link tokens — only when auth module is enabled
+        // Auth v2 uses framework sessions and only needs its own attempt table.
         if (config('ln-starter.auth.enabled', false)) {
-            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/auth');
+            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations/auth-v2');
         }
     }
 
@@ -139,9 +158,13 @@ class LnStarterServiceProvider extends ServiceProvider
 
         // Migrations
         $this->publishes([
-            __DIR__ . '/../database/migrations/create_personal_access_tokens_table.php' => database_path('migrations/create_personal_access_tokens_table.php'),
-            __DIR__ . '/../database/migrations/auth/create_magic_link_tokens_table.php' => database_path('migrations/create_magic_link_tokens_table.php'),
+            __DIR__ . '/../database/migrations/auth-v2/create_magic_login_attempts_table.php' => database_path('migrations/create_magic_login_attempts_table.php'),
         ], 'ln-starter-migrations');
+
+        // Optional generic Sanctum API support; not required by built-in auth v2.
+        $this->publishes([
+            __DIR__ . '/../database/migrations/create_personal_access_tokens_table.php' => database_path('migrations/create_personal_access_tokens_table.php'),
+        ], 'ln-starter-sanctum-migrations');
 
         // Stubs
         $this->publishes([
@@ -160,8 +183,20 @@ class LnStarterServiceProvider extends ServiceProvider
             $this->commands([
                 \LiveNetworks\LnStarter\Console\InstallCommand::class,
                 \LiveNetworks\LnStarter\Console\CleanupMagicLinkTokensCommand::class,
+                \LiveNetworks\LnStarter\Console\AuditAuthV2Command::class,
+                \LiveNetworks\LnStarter\Console\CutoverAuthV2Command::class,
+                \LiveNetworks\LnStarter\Console\CheckAuthV2ReadinessCommand::class,
             ]);
         }
+    }
+
+    protected function validateAuthV2Configuration(): void
+    {
+        if (!config('ln-starter.auth.enabled', false)) {
+            return;
+        }
+
+        $this->app->make(\LiveNetworks\LnStarter\Support\AuthV2Configuration::class)->validate();
     }
 
     protected function publishSkillOnInstall(): void

@@ -8,7 +8,7 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
-use LiveNetworks\LnStarter\Models\MagicLinkToken;
+use LiveNetworks\LnStarter\Models\MagicLoginAttempt;
 
 class MagicLinkMail extends Mailable
 {
@@ -16,7 +16,9 @@ class MagicLinkMail extends Mailable
 
     public function __construct(
         public Authenticatable $user,
-        public MagicLinkToken $token,
+        public MagicLoginAttempt $attempt,
+        private readonly string $linkToken,
+        public readonly string $code,
     ) {}
 
     public function envelope(): Envelope
@@ -32,9 +34,10 @@ class MagicLinkMail extends Mailable
             view: 'ln-starter::emails.magic-link',
             with: [
                 'user'      => $this->user,
-                'token'     => $this->token,
-                'link'      => route('auth.magic.show', ['token' => $this->token->token]),
-                'expiresIn' => $this->token->expires_at->diffInMinutes(now()),
+                'attempt'   => $this->attempt,
+                'code'      => $this->code,
+                'link'      => route('auth.magic.link.open', ['token' => $this->linkToken]),
+                'expiresIn' => max(1, (int) now()->diffInMinutes($this->attempt->expires_at, false)),
             ],
         );
     }

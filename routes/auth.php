@@ -5,34 +5,49 @@ use LiveNetworks\LnStarter\Http\Controllers\AuthController;
 
 /*
 |--------------------------------------------------------------------------
-| LN-Starter Auth Routes (Passwordless / Magic Link)
+| LN-Starter Auth v2 Routes
 |--------------------------------------------------------------------------
 |
-| These routes are loaded by the package when config('ln-starter.auth.enabled')
-| is true. They run inside the 'web' middleware group.
+| Static code/confirmation routes must remain before the wildcard link route.
+| All state-changing routes run inside the package's web middleware group and
+| therefore retain normal CSRF protection.
 |
 */
 
-Route::get('/login', function () {
-    return view('ln-starter::auth.login');
-})->name('login');
+Route::get('/login', [AuthController::class, 'login'])->name('login');
 
 Route::post('/auth/magic-link', [AuthController::class, 'magicLink'])
     ->name('login.magic-link');
 
-Route::get('/magic/wait', [AuthController::class, 'magicWait'])
+Route::get('/auth/magic/code', [AuthController::class, 'codeForm'])
+    ->name('auth.magic.code.form');
+
+Route::post('/auth/magic/code', [AuthController::class, 'consumeCode'])
+    ->block(10, 10)
+    ->name('auth.magic.code');
+
+Route::get('/auth/magic/confirm/{context}', [AuthController::class, 'confirmLink'])
+    ->where('context', '[A-Za-z0-9_-]{24}')
+    ->name('auth.magic.link.confirm');
+
+Route::post('/auth/magic/confirm/{context}', [AuthController::class, 'consumeLink'])
+    ->where('context', '[A-Za-z0-9_-]{24}')
+    ->block(10, 10)
+    ->name('auth.magic.link.consume');
+
+Route::get('/auth/magic/{token}', [AuthController::class, 'openLink'])
+    ->where('token', '[A-Za-z0-9_-]{43,128}')
+    ->name('auth.magic.link.open');
+
+// One-release tombstones for published v1 polling views. These endpoints are
+// read-only and never issue credentials. POST remains CSRF-protected.
+Route::get('/magic/wait', [AuthController::class, 'legacyWait'])
     ->name('magic.wait');
 
-Route::post('/magic/status', [AuthController::class, 'magicStatus'])
+Route::match(['GET', 'POST'], '/magic/status', [AuthController::class, 'legacyStatus'])
     ->name('magic.status');
 
-Route::get('/auth/magic/{token}', [AuthController::class, 'magicShow'])
-    ->name('auth.magic.show');
-
-Route::post('/auth/magic/{token}', [AuthController::class, 'magicConsume'])
-    ->name('auth.magic.consume');
-
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware('auth:web')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])
         ->name('logout');
 });

@@ -3,7 +3,6 @@
 namespace LiveNetworks\LnStarter\Tests\Http\Controllers;
 
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Laravel\Sanctum\HasApiTokens;
 use LiveNetworks\LnStarter\Http\Controllers\AuthController;
 use LiveNetworks\LnStarter\Tests\TestCase;
 
@@ -15,7 +14,7 @@ class AuthControllerLogoutTest extends TestCase
         $router->post('/_test/logout', [AuthController::class, 'logout'])->middleware('web');
     }
 
-    public function test_logout_ends_session_rotates_csrf_token_and_forgets_auth_cookie(): void
+    public function test_logout_ends_session_and_rotates_csrf_token_without_auth_cookie(): void
     {
         $user = new LogoutTestUser();
         $user->forceFill(['id' => 42, 'email' => 'logout@example.test']);
@@ -31,7 +30,7 @@ class AuthControllerLogoutTest extends TestCase
         $response
             ->assertRedirect(route('login'))
             ->assertSessionMissing('private-state')
-            ->assertCookieExpired('auth_token');
+            ->assertCookieMissing('auth_token');
 
         $this->assertGuest('web');
         $this->assertNotSame('old-csrf-token', session()->token());
@@ -40,7 +39,5 @@ class AuthControllerLogoutTest extends TestCase
 
 class LogoutTestUser extends Authenticatable
 {
-    use HasApiTokens;
-
     protected $guarded = [];
 }

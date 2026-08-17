@@ -2,224 +2,447 @@
 
 namespace LiveNetworks\LnStarter\Http\Controllers;
 
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
 use LiveNetworks\LnStarter\DTOs\Message;
 use LiveNetworks\LnStarter\Http\LNController;
-use LiveNetworks\LnStarter\Mail\MagicLinkMail;
-use LiveNetworks\LnStarter\Models\MagicLinkToken;
-use Laravel\Sanctum\PersonalAccessToken;
+use LiveNetworks\LnStarter\Jobs\ProcessMagicLoginRequest;
+use LiveNetworks\LnStarter\Models\MagicLoginAttempt;
+use LiveNetworks\LnStarter\Support\MagicLoginProofs;
+use LiveNetworks\LnStarter\Support\MagicLoginStateMachine;
+use LiveNetworks\LnStarter\Support\SecurityEventLogger;
 use Throwable;
 
 class AuthController extends LNController
 {
-    /**
-     * Restore locale URL defaults from session.
-     *
-     * Auth routes run outside the ln.locale middleware, so URL::defaults
-     * is not set. Read the locale persisted by SetLocale and apply it
-     * so route() helpers can generate localized URLs (e.g. home).
-     */
-    protected function restoreLocaleDefaults(): void
-    {
-        $locale = Session::get('locale', config('app.locale'));
-        URL::defaults(['locale' => $locale]);
-    }
-    /**
-     * Send a magic link to the given email address.
-     */
-    public function magicLink(Request $request)
-    {
-        $key = 'magic-link:' . $request->ip();
+    private const CODE_SESSION_KEY = 'ln_starter.auth.code';
+    private const CONFIRMATION_SESSION_KEY = 'ln_starter.auth.confirmations';
+    private const RATE_SESSION_KEY = 'ln_starter.auth.rate_nonce';
 
-        if (RateLimiter::tooManyAttempts($key, 5)) {
-            $seconds = RateLimiter::availableIn($key);
-            return back()->withErrors([
-                'email' => __('Too many requests. Please try again in :seconds seconds.', ['seconds' => $seconds]),
+    public function __construct(
+        private readonly MagicLoginProofs $proofs,
+        private readonly MagicLoginStateMachine $stateMachine,
+        private readonly SecurityEventLogger $logger,
+    ) {}
+
+    public function login(Request $request): View
+    {
+        $this->forgetLegacySessionState($request);
+
+        return view('ln-starter::auth.login');
+    }
+
+    public function magicLink(Request $request): JsonResponse|RedirectResponse
+    {
+        $this->forgetLegacySessionState($request);
+        $startedAt = hrtime(true);
+        $validated = $request->validate([
+            'email' => ['required', 'string', 'email', 'max:254'],
+        ]);
+
+        $email = $this->proofs->canonicalEmail($validated['email']);
+        $emailKey = $this->proofs->emailKey($email);
+        $requestId = $this->logger->requestId();
+
+        if ($this->creationRateLimited($request, $emailKey)) {
+            $this->logger->record('auth.magic.request.rate_limited', [
+                'request_id' => $requestId,
+                'outcome' => 'rate_limited',
             ]);
+            $this->normalizeRequestTiming($startedAt);
+
+            return $this->genericRequestResponse($request);
         }
 
-        RateLimiter::hit($key, 300); // 5 minute decay
+        $attemptId = (string) Str::ulid();
+        $linkToken = $this->proofs->generateLinkToken();
+        $code = $this->proofs->generateCode();
+        $requesterNonce = $this->proofs->generateRequesterNonce();
+        $pepperId = $this->proofs->currentPepperId();
+        $expiresAt = now()->addMinutes((int) config('ln-starter.auth.token_expiry', 15));
+
+        $request->session()->put(self::CODE_SESSION_KEY, [
+            'attempt_id' => $attemptId,
+            'requester_nonce' => $requesterNonce,
+            'email_key' => $emailKey,
+            'expires_at' => $expiresAt->getTimestamp(),
+        ]);
 
         try {
-            $validated = $request->validate([
-                'email' => 'required|email',
-            ]);
-
-            $userModel = config('ln-starter.auth.user_model', 'App\\Models\\User');
-            $user = $userModel::where('email', $validated['email'])->first();
-
-            if (!$user) {
-                return back()->withErrors([
-                    'email' => __('No account found with this email address.'),
-                ])->withInput();
-            }
-
-            $expiry = config('ln-starter.auth.token_expiry', 15);
-
-            $token = MagicLinkToken::create([
-                'user_id'    => $user->id,
-                'token'      => Str::random(64),
-                'expires_at' => now()->addMinutes($expiry),
-            ]);
-
-            try {
-                Mail::to($user->email)->send(new MagicLinkMail($user, $token));
-            } catch (\Exception $e) {
-                $token->delete();
-                $message = new Message('error', __('Email Error'), __('Failed to send magic link. Please try again.'));
-                return back()->with('message', $message)->withInput();
-            }
-
-            Session::put('magic_link_user_id', $user->id);
-            Session::put('magic_link_token_id', $token->id);
-
-            return redirect()->route('magic.wait');
-
-        } catch (ValidationException $e) {
-            $message = new Message('error', __('Validation Error'), __('Validation error'), $e->errors());
-            return $this->respondWith(null, $message);
-        }
-    }
-
-    /**
-     * Show the "check your email" wait page.
-     */
-    public function magicWait()
-    {
-        return view('ln-starter::auth.magic_wait');
-    }
-
-    /**
-     * CSRF-protected poll endpoint — returns JSON with approval status.
-     */
-    public function magicStatus(Request $request)
-    {
-        $this->restoreLocaleDefaults();
-
-        $userId  = Session::get('magic_link_user_id');
-        $tokenId = Session::get('magic_link_token_id');
-
-        if (!$userId || !$tokenId) {
-            return response()->json(['ok' => false, 'error' => 'No session']);
-        }
-
-        $token = MagicLinkToken::find($tokenId);
-
-        if (!$token || $token->isExpired()) {
-            Session::forget(['magic_link_user_id', 'magic_link_token_id']);
-            return response()->json(['ok' => false, 'error' => 'Token expired']);
-        }
-
-        if ($token->approved) {
-            $user = $token->user;
-            $sanctumToken = $user->createToken('auth_token')->plainTextToken;
-
-            Session::forget(['magic_link_user_id', 'magic_link_token_id']);
-
-            $homeRoute = config('ln-starter.auth.home_route', 'home');
-
-            $response = response()->json([
-                'ok'       => true,
-                'redirect' => route($homeRoute),
-                'user'     => [
-                    'id'    => $user->id,
-                    'email' => $user->email,
-                ],
-            ]);
-
-            $secureCookie = app()->environment('production')
-                || (bool) config('session.secure', false);
-
-            $response->cookie(
-                'auth_token',
-                $sanctumToken,
-                0,
-                config('session.path', '/'),
-                config('session.domain'),
-                $secureCookie,
-                true,
-                false,
-                config('session.same_site', 'lax') ?? 'lax'
+            ProcessMagicLoginRequest::dispatch(
+                $attemptId,
+                $email,
+                $linkToken,
+                $code,
+                $this->proofs->hashRequesterNonce($requesterNonce),
+                $pepperId,
+                $emailKey,
+                $expiresAt->toIso8601String(),
+                $requestId,
+                app()->getLocale(),
             );
 
-            return $response;
+            $this->logger->record('auth.magic.request.accepted', [
+                'attempt_id' => $attemptId,
+                'request_id' => $requestId,
+                'outcome' => 'accepted',
+            ]);
+            $this->logger->record('auth.magic.delivery.queued', [
+                'attempt_id' => $attemptId,
+                'request_id' => $requestId,
+                'outcome' => 'queued',
+            ]);
+        } catch (Throwable) {
+            $this->logger->record('auth.magic.delivery.failed', [
+                'attempt_id' => $attemptId,
+                'request_id' => $requestId,
+                'outcome' => 'dispatch_failed',
+            ]);
         }
 
-        return response()->json(['ok' => false, 'error' => 'Token not approved yet']);
+        $this->normalizeRequestTiming($startedAt);
+
+        return $this->genericRequestResponse($request);
     }
 
-    /**
-     * Show the magic link confirmation page (GET — never consumes the token).
-     */
-    public function magicShow(string $token)
+    public function codeForm(): View
     {
-        $magicToken = MagicLinkToken::where('token', $token)->first();
+        return view('ln-starter::auth.magic_code');
+    }
+
+    public function consumeCode(Request $request): JsonResponse|RedirectResponse
+    {
+        $context = $request->session()->get(self::CODE_SESSION_KEY);
+        $code = (string) $request->input('code', '');
+
+        if (
+            !is_array($context)
+            || ($context['expires_at'] ?? 0) <= now()->getTimestamp()
+        ) {
+            return $this->proofFailureResponse($request);
+        }
+
+        if ($this->codeRateLimited($request, $context) || !preg_match('/^\d{6}$/', $code)) {
+            return $this->proofFailureResponse($request);
+        }
+
+        $user = $this->stateMachine->consumeCode(
+            $context['attempt_id'],
+            $context['requester_nonce'],
+            $code,
+        );
+
+        if (!$user) {
+            return $this->proofFailureResponse($request);
+        }
+
+        return $this->authenticate($request, $user, $context['attempt_id'], 'code');
+    }
+
+    public function openLink(Request $request, string $token): RedirectResponse
+    {
+        $linkHash = $this->proofs->hashLinkToken($token);
+        $attempt = null;
+
+        if (!$this->linkOpenRateLimited($request, $linkHash)) {
+            $attempt = MagicLoginAttempt::query()
+                ->where('link_token_hash', $linkHash)
+                ->where('status', MagicLoginAttempt::STATUS_PENDING)
+                ->where('expires_at', '>', now())
+                ->first();
+        }
+
+        $contextId = $this->proofs->generateContextId();
+
+        if ($attempt) {
+            $this->storeConfirmationContext($request, $contextId, $attempt);
+            $this->logger->record('auth.magic.link.opened', [
+                'attempt_id' => $attempt->getKey(),
+                'user_id' => $attempt->user_id,
+                'outcome' => 'opened',
+            ]);
+        } else {
+            $this->logger->record('auth.magic.proof.rejected', [
+                'outcome' => 'invalid_link',
+            ]);
+        }
+
+        return redirect()
+            ->route('auth.magic.link.confirm', ['context' => $contextId], 303)
+            ->withHeaders([
+                'Referrer-Policy' => 'no-referrer',
+                'Cache-Control' => 'no-store, private',
+            ]);
+    }
+
+    public function confirmLink(Request $request, string $context): View
+    {
+        $entry = $request->session()->get(self::CONFIRMATION_SESSION_KEY . '.' . $context);
+        $valid = is_array($entry)
+            && ($entry['expires_at'] ?? 0) > now()->getTimestamp()
+            && MagicLoginAttempt::query()
+                ->whereKey($entry['attempt_id'] ?? '')
+                ->where('status', MagicLoginAttempt::STATUS_PENDING)
+                ->where('expires_at', '>', now())
+                ->exists();
 
         return view('ln-starter::auth.magic', [
-            'magicToken' => $magicToken,
-            'token'      => $token,
+            'context' => $context,
+            'valid' => $valid,
         ]);
     }
 
-    /**
-     * Consume the magic link token, authenticate, and redirect (POST).
-     */
-    public function magicConsume(string $token)
+    public function consumeLink(Request $request, string $context): JsonResponse|RedirectResponse
     {
-        $magicToken = MagicLinkToken::where('token', $token)->first();
-
-        if (!$magicToken || !$magicToken->isValid()) {
-            return redirect()->route('auth.magic.show', ['token' => $token]);
+        if ($this->linkConfirmationRateLimited($request, $context)) {
+            return $this->proofFailureResponse($request, 'login');
         }
 
-        $this->restoreLocaleDefaults();
+        $entry = $request->session()->pull(self::CONFIRMATION_SESSION_KEY . '.' . $context);
 
-        $magicToken->update([
-            'approved'    => true,
-            'approved_at' => now(),
-        ]);
+        if (!is_array($entry) || ($entry['expires_at'] ?? 0) <= now()->getTimestamp()) {
+            return $this->proofFailureResponse($request, 'login');
+        }
 
-        return view('ln-starter::auth.magic_success');
+        $user = $this->stateMachine->consumeLink($entry['attempt_id']);
+
+        if (!$user) {
+            return $this->proofFailureResponse($request, 'login');
+        }
+
+        return $this->authenticate($request, $user, $entry['attempt_id'], 'link');
     }
 
-    /**
-     * Revoke the current Sanctum token, end the web session, and redirect.
-     */
-    public function logout(Request $request)
+    public function legacyWait(Request $request): RedirectResponse
     {
-        $accessToken = $request->user()?->currentAccessToken();
+        $this->forgetLegacySessionState($request);
 
-        // End the browser session first so local logout succeeds even if token
-        // revocation later encounters a database failure.
+        return redirect()->route('login')->with(
+            'message',
+            new Message('info', __('Check your email'), $this->genericRequestText())
+        );
+    }
+
+    public function legacyStatus(Request $request): JsonResponse
+    {
+        $this->forgetLegacySessionState($request);
+
+        return response()->json([
+            'ok' => false,
+            'error' => 'No session',
+            'upgrade_required' => true,
+        ], 410);
+    }
+
+    public function logout(Request $request): RedirectResponse
+    {
+        $userId = $request->user()?->getAuthIdentifier();
+
         Auth::guard('web')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
+        $this->logger->record('auth.logout.succeeded', [
+            'user_id' => $userId,
+            'outcome' => 'succeeded',
+        ]);
+
+        return redirect()->route('login')
+            ->with('message', new Message('success', __('Success'), __('Logout successful')));
+    }
+
+    private function authenticate(
+        Request $request,
+        Authenticatable $user,
+        string $attemptId,
+        string $via
+    ): JsonResponse|RedirectResponse {
         try {
-            if ($accessToken instanceof PersonalAccessToken) {
-                $accessToken->delete();
+            Auth::guard('web')->login($user);
+            $request->session()->regenerate();
+            $request->session()->forget([
+                self::CODE_SESSION_KEY,
+                self::CONFIRMATION_SESSION_KEY,
+            ]);
+
+            $this->restoreLocaleDefaults();
+            $redirect = route(config('ln-starter.auth.home_route', 'home'));
+
+            $this->logger->record('auth.magic.login.succeeded', [
+                'attempt_id' => $attemptId,
+                'user_id' => $user->getAuthIdentifier(),
+                'outcome' => 'succeeded',
+                'consumed_via' => $via,
+            ]);
+
+            if ($request->wantsJson()) {
+                return response()->json(['ok' => true, 'redirect' => $redirect]);
             }
 
-            $message = new Message('success', __('Success'), __('Logout successful'));
+            return redirect()->to($redirect);
+        } catch (Throwable) {
+            $this->logger->record('auth.magic.login.failed', [
+                'attempt_id' => $attemptId,
+                'user_id' => $user->getAuthIdentifier(),
+                'outcome' => 'failed',
+            ]);
 
-            return redirect()->route('login')
-                ->withCookie(cookie()->forget('auth_token'))
-                ->with('message', $message);
-
-        } catch (Throwable $e) {
-            report($e);
-
-            $message = new Message('error', __('Logout failed'), __('Please try again.'));
-            return redirect()->route('login')
-                ->withCookie(cookie()->forget('auth_token'))
-                ->with('message', $message);
+            return $this->proofFailureResponse($request, 'login');
         }
+    }
+
+    private function genericRequestResponse(Request $request): JsonResponse|RedirectResponse
+    {
+        $message = new Message('info', __('Check your email'), $this->genericRequestText());
+
+        if ($request->wantsJson()) {
+            return response()->json(['message' => $message, 'content' => null], 202);
+        }
+
+        return redirect()->route('auth.magic.code.form')->with('message', $message);
+    }
+
+    private function proofFailureResponse(Request $request, string $route = 'auth.magic.code.form'): JsonResponse|RedirectResponse
+    {
+        $message = new Message(
+            'error',
+            __('Sign in failed'),
+            __('The sign-in proof is invalid or expired. Request a new email and try again.')
+        );
+
+        if ($request->wantsJson()) {
+            return response()->json(['message' => $message, 'content' => null], 422);
+        }
+
+        return redirect()->route($route)->with('message', $message);
+    }
+
+    private function genericRequestText(): string
+    {
+        return __('If an eligible account exists, a sign-in link and code have been sent.');
+    }
+
+    private function storeConfirmationContext(
+        Request $request,
+        string $contextId,
+        MagicLoginAttempt $attempt
+    ): void {
+        $contexts = $request->session()->get(self::CONFIRMATION_SESSION_KEY, []);
+        $now = now()->getTimestamp();
+
+        $contexts = array_filter(
+            is_array($contexts) ? $contexts : [],
+            static fn ($entry) => is_array($entry) && ($entry['expires_at'] ?? 0) > $now
+        );
+
+        $contexts[$contextId] = [
+            'attempt_id' => $attempt->getKey(),
+            'expires_at' => min($attempt->expires_at->getTimestamp(), now()->addMinutes(5)->getTimestamp()),
+            'created_at' => $now,
+        ];
+
+        uasort($contexts, static fn ($a, $b) => ($a['created_at'] ?? 0) <=> ($b['created_at'] ?? 0));
+        while (count($contexts) > 3) {
+            array_shift($contexts);
+        }
+
+        $request->session()->put(self::CONFIRMATION_SESSION_KEY, $contexts);
+    }
+
+    private function creationRateLimited(Request $request, string $emailKey): bool
+    {
+        return $this->limited([
+            ['auth-create-email:' . $emailKey, 5],
+            ['auth-create-ip:' . $this->ipKey($request), 20],
+            ['auth-create-session:' . $this->sessionKey($request), 5],
+        ], 900);
+    }
+
+    private function codeRateLimited(Request $request, array $context): bool
+    {
+        return $this->limited([
+            ['auth-code-email:' . ($context['email_key'] ?? 'missing'), 10],
+            ['auth-code-session:' . $this->sessionKey($request), 10],
+            ['auth-code-ip:' . $this->ipKey($request), 50],
+        ], 900);
+    }
+
+    private function linkOpenRateLimited(Request $request, string $linkHash): bool
+    {
+        return $this->limited([
+            ['auth-link-proof:' . $linkHash, 10],
+            ['auth-link-ip:' . $this->ipKey($request), 100],
+        ], 900);
+    }
+
+    private function linkConfirmationRateLimited(Request $request, string $context): bool
+    {
+        return $this->limited([
+            ['auth-confirm-context:' . $this->proofs->rateKey('context', $context), 5],
+            ['auth-confirm-session:' . $this->sessionKey($request), 5],
+            ['auth-confirm-ip:' . $this->ipKey($request), 50],
+        ], 900);
+    }
+
+    /** @param array<int, array{string, int}> $limits */
+    private function limited(array $limits, int $decaySeconds): bool
+    {
+        foreach ($limits as [$key, $maxAttempts]) {
+            if (RateLimiter::tooManyAttempts($key, $maxAttempts)) {
+                return true;
+            }
+        }
+
+        foreach ($limits as [$key]) {
+            RateLimiter::hit($key, $decaySeconds);
+        }
+
+        return false;
+    }
+
+    private function sessionKey(Request $request): string
+    {
+        $nonce = $request->session()->get(self::RATE_SESSION_KEY);
+        if (!is_string($nonce) || $nonce === '') {
+            $nonce = $this->proofs->generateRequesterNonce();
+            $request->session()->put(self::RATE_SESSION_KEY, $nonce);
+        }
+
+        return $this->proofs->rateKey('session', $nonce);
+    }
+
+    private function ipKey(Request $request): string
+    {
+        return $this->proofs->rateKey('ip', $request->ip() ?: 'unknown');
+    }
+
+    private function normalizeRequestTiming(int $startedAt): void
+    {
+        $minimum = max(0, (int) config('ln-starter.auth.response_floor_ms', 250));
+        $jitter = max(0, (int) config('ln-starter.auth.response_jitter_ms', 50));
+        $target = $minimum + ($jitter > 0 ? random_int(0, $jitter) : 0);
+        $elapsed = (hrtime(true) - $startedAt) / 1_000_000;
+
+        if ($elapsed < $target) {
+            usleep((int) (($target - $elapsed) * 1000));
+        }
+    }
+
+    private function restoreLocaleDefaults(): void
+    {
+        $locale = session('locale', config('app.locale'));
+        URL::defaults(['locale' => $locale]);
+    }
+
+    private function forgetLegacySessionState(Request $request): void
+    {
+        $request->session()->forget(['magic_link_user_id', 'magic_link_token_id']);
     }
 }

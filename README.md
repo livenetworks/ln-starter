@@ -2,6 +2,10 @@
 
 Laravel foundation package by Live Networks. Base classes and conventions for building dual-mode (browser + API) Laravel applications.
 
+Laravel 12 and 13 are the supported deployment targets. Laravel 11 remains in
+the compatibility test lane for existing applications, but its final upstream
+release is EOL and currently blocked by Composer security advisories.
+
 ## Core principle
 
 **One URL, one controller, one logic — output adapts to the request type.**
@@ -38,8 +42,11 @@ php artisan vendor:publish --tag=ln-starter-views
 # Auth SCSS (publishes to resources/scss/auth.scss)
 php artisan vendor:publish --tag=ln-starter-auth-css
 
-# Migrations (magic_link_tokens, personal_access_tokens)
+# Auth v2 migration (magic_login_attempts)
 php artisan vendor:publish --tag=ln-starter-migrations
+
+# Optional Sanctum PAT migration (not used by built-in auth)
+php artisan vendor:publish --tag=ln-starter-sanctum-migrations
 
 # Stubs (for scaffolding new controllers/models)
 php artisan vendor:publish --tag=ln-starter-stubs
@@ -67,7 +74,10 @@ ln-starter/
 │   ├── Models/
 │   │   ├── LNReadModel.php            # Read-only Eloquent (DB views)
 │   │   ├── LNWriteModel.php           # Write Eloquent (no timestamps)
-│   │   └── MagicLinkToken.php         # Magic link token model
+│   │   ├── MagicLoginAttempt.php       # Auth v2 attempt state
+│   │   └── MagicLinkToken.php          # Legacy cleanup compatibility
+│   ├── Jobs/
+│   │   └── ProcessMagicLoginRequest.php # Encrypted async mail job
 │   ├── Mail/
 │   │   └── MagicLinkMail.php          # Magic link email
 │   ├── DTOs/
@@ -81,7 +91,7 @@ ln-starter/
 │   └── auth.php                       # Auth routes (loaded when enabled)
 ├── database/
 │   └── migrations/
-│       └── create_magic_link_tokens_table.php
+│       └── auth-v2/create_magic_login_attempts_table.php
 ├── resources/
 │   ├── scss/
 │   │   └── auth.scss                  # Auth styles (BEM, ln-acme mixins)
@@ -92,8 +102,8 @@ ln-starter/
 │       │   └── _auth.blade.php        # Minimal auth layout
 │       ├── auth/
 │       │   ├── login.blade.php        # Login form (magic link)
-│       │   ├── magic_wait.blade.php   # Polling wait page
-│       │   └── magic.blade.php        # Magic link confirmation / error
+│       │   ├── magic_code.blade.php   # Six-digit code form
+│       │   └── magic.blade.php        # Token-free link confirmation
 │       └── emails/
 │           └── magic-link.blade.php   # Magic link email template
 ├── docs/
@@ -233,7 +243,7 @@ $message = new Message(
 | Middleware | Purpose |
 |---|---|
 | `AuthenticateWithSanctum` | Validates bearer tokens from `Authorization` header |
-| `AuthorizationFromCookie` | Bridges `auth_token` cookie to `Authorization` header |
+| `AuthorizationFromCookie` | Deprecated legacy cookie-to-bearer bridge; not used by auth v2 |
 | `DisableCsrf` | Bearer-only marker middleware (`disable-csrf:bearer`) |
 | `VerifyCsrfToken` | Extended Laravel CSRF that exempts only marked requests with an explicit bearer header |
 
@@ -329,16 +339,12 @@ npm run build
 **3. User model prerequisites**
 
 Your `User` model must:
-- Use the `Laravel\Sanctum\HasApiTokens` trait
-- Have `'email'` in `$fillable`
+- Implement Laravel's `Authenticatable` contract (the normal Laravel user model)
+- Expose its canonical email address
 
 ```php
-use Laravel\Sanctum\HasApiTokens;
-
 class User extends Authenticatable
 {
-    use HasApiTokens;
-
     protected $fillable = ['email'];
 }
 ```
@@ -349,32 +355,31 @@ class User extends Authenticatable
 php artisan migrate
 ```
 
-This creates the `magic_link_tokens` table. The migration is loaded automatically when auth is enabled. To publish it for customization:
+This creates the additive `magic_login_attempts` table. The migration is loaded automatically when auth is enabled. To publish it for customization:
 
 ```bash
 php artisan vendor:publish --tag=ln-starter-migrations
 ```
 
-**5. Exclude auth_token from cookie encryption**
+**5. Configure the auth-v2 pepper, queue, and session**
 
-In `bootstrap/app.php`:
-
-```php
-->withMiddleware(function (Middleware $middleware) {
-    $middleware->encryptCookies(except: ['auth_token']);
-})
+```dotenv
+LN_AUTH_PEPPER_ID=v1
+LN_AUTH_PEPPER=base64:REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES
+QUEUE_CONNECTION=database
+SESSION_DRIVER=database
 ```
 
-**6. Prepend the cookie-to-header middleware**
+Run an asynchronous queue worker in production. Built-in auth uses only the
+Laravel `web` session; it does not require `HasApiTokens`, an `auth_token`
+cookie, or the cookie-to-header middleware.
 
-In `bootstrap/app.php`:
+**6. Audit upgrades from auth v1**
 
-```php
-->withMiddleware(function (Middleware $middleware) {
-    $middleware->prepend(
-        \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class
-    );
-})
+```bash
+php artisan ln-starter:auth-v2-audit
+php artisan ln-starter:auth-v2-readiness
+php artisan ln-starter:auth-v2-cutover --force
 ```
 
 ### Routes registered
@@ -383,21 +388,21 @@ In `bootstrap/app.php`:
 |--------|-----|------|---------|
 | GET | `/login` | `login` | Login form |
 | POST | `/auth/magic-link` | `login.magic-link` | Send magic link email |
-| GET | `/magic/wait` | `magic.wait` | "Check your email" polling page |
-| POST | `/magic/status` | `magic.status` | CSRF-protected poll endpoint (JSON) |
-| GET | `/auth/magic/{token}` | `auth.magic.show` | Show confirmation page (read-only) |
-| POST | `/auth/magic/{token}` | `auth.magic.consume` | Consume token, authenticate, redirect |
-| POST | `/logout` | `logout` | Revoke token, invalidate session, redirect to login |
+| GET | `/auth/magic/code` | `auth.magic.code.form` | Six-digit code form |
+| POST | `/auth/magic/code` | `auth.magic.code` | Consume code in requesting session |
+| GET | `/auth/magic/{token}` | `auth.magic.link.open` | Exchange URL proof for token-free context |
+| GET | `/auth/magic/confirm/{context}` | `auth.magic.link.confirm` | Show confirmation page |
+| POST | `/auth/magic/confirm/{context}` | `auth.magic.link.consume` | Consume link and authenticate session |
+| POST | `/logout` | `logout` | Invalidate session and redirect to login |
 
 ### Flow
 
 ```
-1. User visits /login → enters email → POST /auth/magic-link
-2. Package looks up user, generates token, sends email
-3. Redirects to /magic/wait → JS polls /magic/status every 2s
-4. User clicks email link → GET /auth/magic/{token} → sees confirmation page (token NOT consumed)
-5. User clicks "Sign in" → POST /auth/magic/{token} → token consumed, Sanctum token issued, cookie set, redirect to home
-6. Meanwhile, polling page detects approval → also issues token → redirects to home
+1. User enters an email; the public response is identical for every address.
+2. An encrypted queue job checks eligibility and sends a link plus six-digit code.
+3. The requesting browser can enter the code; the link can be opened elsewhere.
+4. Link GET exchanges the URL secret for a bounded session context and redirects.
+5. A CSRF-protected POST consumes either proof, starts a web session, and revokes siblings.
 ```
 
 Render a CSRF-safe logout form with:
@@ -406,7 +411,8 @@ Render a CSRF-safe logout form with:
 <x-ln.logout-form class="nav-logout">{{ __('Sign out') }}</x-ln.logout-form>
 ```
 
-> **Why two steps?** Email scanners (Office 365, Avast, Gmail corporate) pre-fetch URLs via GET. The GET route never consumes the token — only the POST (form submit) does. Scanners never submit forms.
+> **Why two steps?** Email scanners pre-fetch URLs via GET. GET never authenticates;
+> only the explicit, CSRF-protected confirmation POST consumes the proof.
 
 ### Customizing views
 
@@ -418,9 +424,9 @@ php artisan vendor:publish --tag=ln-starter-views
 
 Views are published to `resources/views/vendor/ln-starter/`. Edit:
 - `auth/login.blade.php` — login form
-- `auth/magic_wait.blade.php` — polling page
-- `auth/magic.blade.php` — magic link confirmation (valid → sign-in form, invalid → error)
-- `emails/magic-link.blade.php` — email template
+- `auth/magic_code.blade.php` — code entry
+- `auth/magic.blade.php` — token-free magic link confirmation
+- `emails/magic-link.blade.php` — link plus code email
 - `layouts/_auth.blade.php` — auth page layout
 
 Or point `config('ln-starter.auth.layout')` to your own layout.

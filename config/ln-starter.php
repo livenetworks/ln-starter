@@ -50,19 +50,34 @@ return [
     |
     | Enable the built-in passwordless authentication flow.
     | When enabled, the package registers login/logout routes,
-    | loads the magic_link_tokens migration, and provides auth views.
+    | loads the magic_login_attempts migration, and provides auth views.
     |
-    | Your User model must use Laravel\Sanctum\HasApiTokens and have
-    | 'email' in $fillable.
+    | Your User model must be Laravel-authenticatable and expose its canonical
+    | email address. Personal access tokens are not used by built-in auth v2.
     |
     */
     'auth' => [
-        'enabled'      => false,
-        'user_model'   => 'App\\Models\\User',
-        'token_expiry' => 15, // minutes
-        'home_route'   => 'home',
-        'mail_subject' => 'Magic Link Login',
-        'layout'       => 'layouts._auth',
+        'enabled'             => false,
+        'user_model'          => 'App\\Models\\User',
+        'eligibility'         => \LiveNetworks\LnStarter\Support\DefaultAuthEligibility::class,
+        'token_expiry'        => 15, // minutes
+        'code_max_failures'   => 5,
+        'response_floor_ms'   => 250,
+        'response_jitter_ms'  => 50,
+        'home_route'          => 'home',
+        'mail_subject'        => 'Magic Link Login',
+        'layout'              => 'layouts._auth',
+        'peppers'             => [
+            'current' => env('LN_AUTH_PEPPER_ID', 'v1'),
+            'keys' => [
+                'v1' => env('LN_AUTH_PEPPER'),
+            ],
+        ],
+    ],
+
+    'logging' => [
+        'enabled' => true,
+        'channel' => env('LN_SECURITY_LOG_CHANNEL'),
     ],
 
     /*

@@ -236,26 +236,30 @@ When asked to create a new CRUD or feature, follow this order:
 7. **Routes** — single `Route::resource()`, no API duplication
 8. **Register composer** — in a service provider
 
-## Auth module (magic link)
+## Auth module (link + code)
 
 The package provides opt-in passwordless auth. Enable with `config('ln-starter.auth.enabled', true)`.
 
 ### What it provides
 
-- `AuthController` — `magicLink()`, `magicWait()`, `magicStatus()`, `magicShow()`, `magicConsume()`, `logout()`
-- `MagicLinkToken` model — with configurable user relationship
-- `MagicLinkMail` — with configurable subject
-- Views — login, wait, magic link confirmation (sign-in form / error), email template
+- `AuthController` — generic request, code consumption, token-free link confirmation, session logout
+- `ProcessMagicLoginRequest` — encrypted asynchronous eligibility/mail job
+- `MagicLoginAttempt` — row-locked, single-use state machine with hashed proofs
+- `MagicLinkMail` — independent high-entropy link plus six-digit code
+- Views — login, code entry, token-free link confirmation, email template
 - Routes — registered automatically when enabled
-- Migration — `magic_link_tokens` table
+- Additive migration — `magic_login_attempts` table
 
 ### Config keys
 
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `auth.enabled` | `false` | Enable the module |
-| `auth.user_model` | `App\Models\User` | User model class (must use `HasApiTokens`) |
+| `auth.user_model` | `App\Models\User` | Laravel-authenticatable user model |
+| `auth.eligibility` | `DefaultAuthEligibility` | Request/consume eligibility policy |
 | `auth.token_expiry` | `15` | Token validity in minutes |
+| `auth.code_max_failures` | `5` | Invalid code attempts before code-only lock |
+| `auth.peppers` | environment-backed key ring | Current and retained HMAC peppers |
 | `auth.home_route` | `home` | Post-login redirect route |
 | `auth.mail_subject` | `Magic Link Login` | Email subject (translatable) |
 | `auth.layout` | `layouts._auth` | Auth views layout |
@@ -265,18 +269,25 @@ The package provides opt-in passwordless auth. Enable with `config('ln-starter.a
 1. Set `auth.enabled` to `true` in config
 2. `php artisan vendor:publish --tag=ln-starter-auth-css` — copies `auth.scss` to `resources/scss/`
 3. Add `resources/scss/auth.scss` to Vite input array, run `npm run build`
-4. Ensure User model uses `HasApiTokens` and has `'email'` in `$fillable`
-5. Run `php artisan migrate`
-6. In `bootstrap/app.php`: prepend `AuthorizationFromCookie`, exclude `auth_token` from cookie encryption
-7. Define a `home` named route (or change `auth.home_route`)
-8. Publish views if you need to customize branding: `php artisan vendor:publish --tag=ln-starter-views`
+4. Configure a random pepper of at least 32 bytes, persistent sessions, mail, and an asynchronous queue
+5. Ensure the User model is Laravel-authenticatable and exposes its canonical email
+6. Run `php artisan migrate` and a queue worker
+7. Protect the named home route with `auth:web`
+8. For a v1 upgrade, run `ln-starter:auth-v2-audit` and `ln-starter:auth-v2-readiness`, port published views, then explicitly run `ln-starter:auth-v2-cutover --force`
+9. Publish views if you need to customize branding: `php artisan vendor:publish --tag=ln-starter-views`
 
-**Peer dependency:** `ln-acme` must be installed via npm — the SCSS uses `@use 'ln-acme/scss/config/mixins'` and `ln-acme/scss/config/tokens`.
+Security invariants: link GET never authenticates; all consuming routes retain
+CSRF; only the first proof wins; session ID is regenerated; raw email/link/code,
+requester nonce, cookies, authorization headers, and request bodies are never
+stored or logged. Built-in auth never creates a Sanctum PAT or `auth_token`
+cookie. `sanctum.token` remains an independent option for consumer-owned APIs.
+
+The auth SCSS is standalone and has no `ln-acme` peer dependency.
 
 ## Stack context
 
 - **Backend**: Laravel 11+, Blade SSR (no SPA frameworks)
 - **Database**: PostgreSQL, JSONB for dynamic/flexible entities
 - **Frontend**: Vanilla JS (IIFE pattern), SCSS, ln-acme component library
-- **Auth**: Laravel Sanctum (token-based), passwordless (Passkey + Magic Link)
+- **Auth**: Laravel web sessions for passwordless link + code; optional Sanctum for consumer-owned APIs
 - **Philosophy**: server-side rendering, minimal client-side JS, long-term stability over trends

@@ -20,11 +20,11 @@ LN-Starter is a Laravel foundation package by Live Networks. It provides base cl
 
 6. **Blade components**: `<x-ln.toast />` renders session flash messages (success/errors) as dismissible toasts. `<x-ln.modal />` renders a modal dialog with form wrapper and AJAX submission. Both are auto-registered — no publish needed. See `docs/components.md`.
 
-7. **CSRF strategy**: Session and cookie-authenticated requests remain CSRF-protected. Header-authenticated bearer APIs may opt out with `disable-csrf:bearer`; cookie-derived bearer headers are never exempt. Configure verified-webhook exclusions through Laravel's CSRF settings.
+7. **CSRF strategy**: Session and cookie-authenticated requests remain CSRF-protected, even if they also carry a bearer header. Header-only bearer APIs may opt out with `disable-csrf:bearer`; cookie-derived bearer headers are never exempt. Configure verified-webhook exclusions through Laravel's CSRF settings.
 
-8. **Cookie-to-header auth bridge**: `AuthorizationFromCookie` reads `auth_token` from cookies and sets the `Authorization` header for Sanctum.
+8. **Bearer APIs are independent of built-in auth**: `sanctum.token` remains available for explicit consumer-owned bearer APIs. The legacy `cookie.auth` bridge is deprecated and is never used by passwordless auth v2.
 
-9. **Passwordless auth module**: Opt-in via `config('ln-starter.auth.enabled')`. Provides magic link login flow — `AuthController`, `MagicLinkToken` model, `MagicLinkMail`, views, routes, and migration. User model is configurable. Auth views use **standalone SCSS** (`auth.scss`) with no ln-acme dependency — all styles are self-contained via CSS custom properties and BEM classes. See `docs/auth.md`.
+9. **Passwordless auth module**: Opt-in via `config('ln-starter.auth.enabled')`. Auth v2 sends a high-entropy link plus a session-bound six-digit code from an encrypted queue job. Link GET is read-only; a CSRF-protected POST consumes exactly one proof under a database lock and starts a normal `web` session. Store only proof hashes, configure a versioned 32-byte pepper, and never reintroduce polling, PAT creation, or raw secrets in logs/URLs/database. See `docs/auth.md` and the auth v2 ADR.
 
 ## When generating code for projects using this package
 
@@ -42,5 +42,5 @@ LN-Starter is a Laravel foundation package by Live Networks. It provides base cl
 - **Backend**: Laravel, Blade SSR (no SPA frameworks)
 - **Database**: PostgreSQL preferred, with JSONB for dynamic entities
 - **Frontend**: Vanilla JS (IIFE pattern), SCSS, ln-acme component library
-- **Auth**: Laravel Sanctum, passwordless (Passkey + Magic Link)
+- **Auth**: Laravel web sessions for built-in passwordless link + code; Sanctum remains optional for consumer-owned APIs
 - **Philosophy**: Server-side rendering, minimal JavaScript, stable long-term solutions

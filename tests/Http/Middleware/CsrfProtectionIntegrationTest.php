@@ -49,6 +49,14 @@ class CsrfProtectionIntegrationTest extends TestCase
             ->assertStatus(419);
     }
 
+    public function test_session_fallback_cannot_be_unlocked_by_an_arbitrary_bearer_header(): void
+    {
+        $this->actingAs($this->user())
+            ->withHeader('Authorization', 'Bearer attacker-controlled-value')
+            ->post('/_test/bearer-action')
+            ->assertStatus(419);
+    }
+
     public function test_explicit_authorization_bearer_header_can_use_bearer_exemption(): void
     {
         $this->withHeader('Authorization', 'Bearer explicit-api-token')

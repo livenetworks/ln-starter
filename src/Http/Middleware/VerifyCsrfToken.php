@@ -3,6 +3,7 @@
 namespace LiveNetworks\LnStarter\Http\Middleware;
 
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken as BaseValidateCsrfToken;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * Extends Laravel's CSRF middleware with an explicit route-level opt-out.
@@ -10,7 +11,8 @@ use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken as BaseValidateCsrfT
  * Authentication is not a substitute for CSRF protection. Session and cookie
  * authenticated requests must still prove that the request originated from
  * the application. Only routes carrying the 'disable-csrf:bearer' marker and
- * an explicit Authorization bearer token are excluded.
+ * an explicit Authorization bearer token, with no authenticated web session,
+ * are excluded.
  *
  * Register by replacing Laravel's default in bootstrap/app.php:
  *
@@ -34,6 +36,7 @@ class VerifyCsrfToken extends BaseValidateCsrfToken
                 in_array('disable-csrf:bearer', $middleware, true)
                 && $request->bearerToken()
                 && !$request->attributes->get(AuthorizationFromCookie::REQUEST_ATTRIBUTE, false)
+                && !Auth::guard('web')->check()
             ) {
                 return true;
             }

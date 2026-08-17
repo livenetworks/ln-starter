@@ -7,17 +7,22 @@ All notable changes to this project will be documented in this file.
 ### Security
 - Keep CSRF protection enabled for session and cookie-authenticated requests; only `disable-csrf:bearer` routes carrying an explicit Authorization bearer token are excluded
 - Delegate `sanctum.token` authentication to Sanctum's official guard so token expiry, provider checks, events, and usage tracking are preserved
-- Protect modal submissions, magic-status polling, and the built-in logout route with normal CSRF validation
+- Protect modal submissions, auth proof consumption, and the built-in logout route with normal CSRF validation
 - Invalidate the authenticated web session and rotate its CSRF token during logout
-- Make the `auth_token` cookie HttpOnly, SameSite-aware, and Secure in production
+- Deprecate the legacy `auth_token` cookie bridge; built-in auth v2 neither issues nor authenticates from it
 - Publish an additive first/last-name migration without replacing consumer-owned users migrations
+- Replace polling/PAT magic login with a single-use, row-locked link-plus-code state machine that authenticates Laravel web sessions
+- Store only purpose-separated proof digests, bind codes to the requesting session, and support versioned HMAC pepper rotation
+- Process email eligibility and delivery in encrypted queue jobs behind enumeration-resistant public responses and layered throttles
+- Emit structured allow-listed security events without email, token, code, cookie, authorization, body, or session secrets
 
 ### Changed
 - Add `<x-ln.logout-form />` as the CSRF-safe package logout control
-- Change `/magic/status` from GET to POST because approval creates a token and cookie
-- Accepted the magic-link v2 link-plus-code state-machine design and security acceptance matrix; implementation follows after the observability foundation
+- Retain `/magic/wait` and `GET|POST /magic/status` only as one-release HTTP 410 tombstones that cannot issue credentials
+- Implement the accepted magic-link v2 link-plus-code state machine and its security acceptance suite
 - Tighten the auth-v2 specification with constrained route ordering, bounded confirmation contexts, explicit cross-device UX, layered rate limits, versioned pepper rotation, and a v1 published-view migration policy
 - Add a Laravel 11/12/13 CI matrix that runs on SQLite and row-locking MySQL
+- Add auth-v2 upgrade audit/readiness/cutover commands, published-view preflight, retention-aware cleanup, and a separate optional Sanctum migration tag
 - Auth views redesigned: card-based layout with gradient backgrounds, inline SVG icons, animations, and richer UX (info boxes, countdown, troubleshooting tips)
 - Auth SCSS (`auth.scss`) rewritten as fully standalone — no ln-acme dependency; uses CSS custom properties and self-contained BEM classes
 - Auth layout (`_auth.blade.php`) simplified to minimal HTML shell; views handle their own full-screen layout

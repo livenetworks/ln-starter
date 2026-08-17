@@ -49,6 +49,10 @@ Route::middleware(['sanctum.token:required'])->group(function () {
 
 **Alias:** `cookie.auth`
 
+> Deprecated for new applications. Built-in auth v2 uses `auth:web` sessions
+> and never issues or reads `auth_token`. This bridge remains temporarily
+> available only for consumer-owned legacy bearer APIs.
+
 Reads a Sanctum token from the `auth_token` cookie and sets it as the `Authorization: Bearer` header. This bridges cookie-based clients (browser JS) with Sanctum's token auth.
 
 ```php
@@ -84,7 +88,7 @@ Route::middleware(['auth:sanctum', 'disable-csrf:bearer'])->group(function () {
 ### When to use
 
 - API routes authenticated exclusively via an `Authorization` bearer token
-Do not use this marker for webhooks; register webhook exclusions through Laravel's CSRF exception configuration and independently verify the provider signature. A bare `disable-csrf`, a session-authenticated request, or a bearer header derived from the `auth_token` cookie does not bypass CSRF.
+Do not use this marker for webhooks; register webhook exclusions through Laravel's CSRF exception configuration and independently verify the provider signature. A bare `disable-csrf`, a session-authenticated request (even one carrying an arbitrary bearer header), or a bearer header derived from the `auth_token` cookie does not bypass CSRF.
 
 ## VerifyCsrfToken
 

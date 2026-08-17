@@ -3,6 +3,8 @@
 namespace LiveNetworks\LnStarter\Console;
 
 use Illuminate\Console\Command;
+use LiveNetworks\LnStarter\Support\AuthV2Configuration;
+use LiveNetworks\LnStarter\Support\AuthV2UpgradeAudit;
 
 class InstallCommand extends Command
 {
@@ -11,9 +13,31 @@ class InstallCommand extends Command
 
     protected $description = 'Publish all LN-Starter assets (config, layouts, migrations, stubs)';
 
-    public function handle(): int
+    public function handle(
+        AuthV2UpgradeAudit $authAudit,
+        AuthV2Configuration $authConfiguration,
+    ): int
     {
         $force = $this->option('force') ? ['--force' => true] : [];
+
+        if (config('ln-starter.auth.enabled', false)) {
+            try {
+                $authConfiguration->validate(true);
+            } catch (\RuntimeException $exception) {
+                $this->components->error('Auth v2 readiness failed: ' . $exception->getMessage());
+                return self::FAILURE;
+            }
+
+            $legacyViews = $authAudit->legacyPublishedViews();
+            if ($legacyViews !== []) {
+                $this->components->error('Auth v2 installation stopped: legacy published auth views were detected.');
+                foreach ($legacyViews as $path) {
+                    $this->line('  - ' . $path);
+                }
+                $this->components->warn('Port or remove these overrides, then run ln-starter:auth-v2-audit.');
+                return self::FAILURE;
+            }
+        }
 
         try {
             // Resolve all users-migration decisions before vendor:publish so a
@@ -33,7 +57,7 @@ class InstallCommand extends Command
             ['tag' => 'ln-starter-config',     'label' => 'Config'],
             ['tag' => 'ln-starter-layouts',    'label' => 'Layouts'],
             ['tag' => 'ln-starter-views',      'label' => 'Auth views'],
-            ['tag' => 'ln-starter-migrations', 'label' => 'Migrations (magic_link_tokens, personal_access_tokens)'],
+            ['tag' => 'ln-starter-migrations', 'label' => 'Migrations (magic_login_attempts)'],
             ['tag' => 'ln-starter-stubs',      'label' => 'Generator stubs'],
             ['tag' => 'ln-starter-auth-css',   'label' => 'Auth SCSS'],
         ];
@@ -51,7 +75,7 @@ class InstallCommand extends Command
 
         $this->publishUserModel();
         $this->injectViteEntry('resources/scss/auth.scss');
-        $this->checkNpmDependencies(['sass', 'ln-acme']);
+        $this->checkNpmDependencies(['sass']);
 
         $this->newLine();
         $this->components->info('LN-Starter installed successfully.');
@@ -121,7 +145,7 @@ class InstallCommand extends Command
         }
 
         copy($stub, $target);
-        $this->components->info('User model published (HasApiTokens + first_name/last_name).');
+        $this->components->info('User model published (session auth + first_name/last_name).');
     }
 
     /**

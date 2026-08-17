@@ -19,6 +19,8 @@ abstract class TestCase extends Orchestra
     {
         $connection = getenv('DB_CONNECTION') ?: 'testing';
 
+        $app['config']->set('app.key', 'base64:' . base64_encode(str_repeat('k', 32)));
+        $app['config']->set('app.cipher', 'AES-256-CBC');
         $app['config']->set('database.default', $connection);
 
         if ($connection === 'mysql') {

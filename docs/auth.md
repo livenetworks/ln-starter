@@ -1,290 +1,231 @@
-# Auth Module (Passwordless / Magic Link)
+# Auth module (passwordless link + code)
 
-> Security redesign: the replacement link-plus-code state machine is specified
-> in [`adr/0001-magic-link-authentication-v2.md`](adr/0001-magic-link-authentication-v2.md).
-> This document describes the currently implemented v1 flow until that ADR is
-> implemented.
+LN-Starter provides an opt-in, passwordless authentication flow for existing
+users. Every request produces two independent proofs with one shared lifetime:
 
-## Overview
+- a high-entropy link for the device that opens the email;
+- a six-digit code for the browser that requested the login.
 
-LN-Starter includes an opt-in passwordless authentication module. When enabled, it registers routes, loads migrations, and provides views for a complete magic link login flow — no passwords, no separate auth scaffolding.
+The first successfully consumed proof wins. Consumption authenticates a normal
+Laravel `web` session; the built-in flow never creates a Sanctum personal access
+token or an `auth_token` cookie.
+
+The complete security design and acceptance criteria live in
+[`adr/0001-magic-link-authentication-v2.md`](adr/0001-magic-link-authentication-v2.md)
+and [`auth-v2-test-matrix.md`](auth-v2-test-matrix.md).
 
 ## Prerequisites
 
-Before enabling, ensure your project has:
+- PHP 8.3 or newer and a supported Laravel version.
+- A Laravel-authenticatable user model with an email attribute.
+- A persistent session driver and an asynchronous queue in production.
+- Working mail and queue workers.
+- A random HMAC pepper of at least 32 bytes.
 
-1. **Laravel Sanctum** installed and configured
-2. **User model** with `HasApiTokens` trait and `'email'` in `$fillable`
-3. **Mail** configured (SMTP, Mailgun, etc.) — the module sends emails
+`database`, Redis, or another shared session store is recommended for multiple
+application nodes. Production boot fails closed for `array`/`cookie` sessions,
+the `sync` queue, a process-local/non-locking session block cache, a missing
+pepper, or an undersized pepper. Configure `session.block_store` when the
+default cache store is not a shared lock provider.
 
 ## Setup
 
-### Step 1: Publish and edit config
+Publish the configuration and set the v2 values:
 
 ```bash
 php artisan vendor:publish --tag=ln-starter-config
 ```
 
-In `config/ln-starter.php`, set `auth.enabled` to `true`:
+```dotenv
+LN_AUTH_PEPPER_ID=v1
+LN_AUTH_PEPPER=base64:REPLACE_WITH_AT_LEAST_32_RANDOM_BYTES
+QUEUE_CONNECTION=database
+SESSION_DRIVER=database
+```
+
+Generate a suitable pepper:
+
+```bash
+php -r "echo 'base64:'.base64_encode(random_bytes(32)).PHP_EOL;"
+```
+
+Relevant configuration:
 
 ```php
 'auth' => [
-    'enabled'      => true,
-    'user_model'   => 'App\\Models\\User',  // your User model class
-    'token_expiry' => 15,                    // magic link validity in minutes
-    'home_route'   => 'home',               // route name after successful login
-    'mail_subject' => 'Magic Link Login',   // email subject (translatable)
-    'layout'       => 'layouts._auth', // auth page layout
+    'enabled' => true,
+    'user_model' => App\Models\User::class,
+    'eligibility' => App\Auth\LoginEligibility::class,
+    'token_expiry' => 15,
+    'code_max_failures' => 5,
+    'response_floor_ms' => 250,
+    'response_jitter_ms' => 50,
+    'home_route' => 'home',
+    'mail_subject' => 'Magic Link Login',
+    'layout' => 'layouts._auth',
+    'peppers' => [
+        'current' => env('LN_AUTH_PEPPER_ID', 'v1'),
+        'keys' => ['v1' => env('LN_AUTH_PEPPER')],
+    ],
 ],
 ```
 
-### Step 2: Publish auth styles
-
-```bash
-php artisan vendor:publish --tag=ln-starter-auth-css
-```
-
-This copies `auth.scss` to `resources/scss/auth.scss`. Add it to your `vite.config.js`:
-
-```js
-export default defineConfig({
-    plugins: [
-        laravel({
-            input: [
-                'resources/scss/auth.scss',  // ← add this
-                'resources/scss/app.scss',
-                'resources/js/app.js',
-            ],
-        }),
-    ],
-});
-```
-
-Build frontend assets:
-
-```bash
-npm run build
-```
-
-The auth SCSS is **fully standalone** — it has no dependency on `ln-acme` or any external package. All styles (custom properties, reset, animations, BEM components) are self-contained in the single file.
-
-### Step 3: Run migrations
-
-```bash
-php artisan migrate
-```
-
-This creates the `magic_link_tokens` table. To publish the migration for customization:
+Publish or load the additive migration, migrate, and run a worker:
 
 ```bash
 php artisan vendor:publish --tag=ln-starter-migrations
+php artisan migrate
+php artisan queue:work
 ```
 
-### Step 4: Configure middleware in bootstrap/app.php
+The migration creates `magic_login_attempts`. LN-Starter does not replace the
+consumer's users migration and does not require `HasApiTokens`. The optional
+Sanctum migration has its own `ln-starter-sanctum-migrations` publish tag.
+
+Protect the destination route with the session guard:
 
 ```php
-use Illuminate\Foundation\Configuration\Middleware;
-
-->withMiddleware(function (Middleware $middleware) {
-    // 1. Bridge cookie → Authorization header (before Sanctum)
-    $middleware->prepend(
-        \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class
-    );
-
-    // 2. Replace Laravel CSRF with LN-Starter's route-aware implementation
-    $middleware->web(replace: [
-        \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class
-            => \LiveNetworks\LnStarter\Http\Middleware\VerifyCsrfToken::class,
-    ]);
-
-    // 3. Exclude auth_token from cookie encryption
-    $middleware->encryptCookies(except: ['auth_token']);
-})
+Route::middleware('auth:web')->get('/', DashboardController::class)->name('home');
 ```
 
-### Step 5: Define the home route
+Render logout as a CSRF-protected POST form:
 
-The module redirects to `route('home')` after login (configurable via `auth.home_route`). Make sure this route exists:
+```blade
+<x-ln.logout-form class="nav-logout">{{ __('Sign out') }}</x-ln.logout-form>
+```
+
+## Eligibility policy
+
+The default `DefaultAuthEligibility` permits any resolved user. Applications
+with status, tenant, or suspension rules should configure an implementation of
+`LiveNetworks\LnStarter\Contracts\AuthEligibility`:
 
 ```php
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/', [DashboardController::class, 'index'])->name('home');
-});
-```
-
-## Authentication Flow
-
-```
-┌─────────┐     POST /auth/magic-link      ┌─────────────┐
-│  Login   │ ────────────────────────────► │  AuthController│
-│  Form    │                               │  magicLink()  │
-└─────────┘                               └──────┬────────┘
-                                                  │
-                                    1. Find user by email
-                                    2. Create MagicLinkToken (15 min)
-                                    3. Send MagicLinkMail
-                                    4. Store IDs in session
-                                    5. Redirect to /magic/wait
-                                                  │
-                                                  ▼
-┌─────────────┐ POST+CSRF /magic/status  ┌─────────────┐
-│  Wait Page  │ ◄──────────────────────► │  magicStatus()│
-│  (polling)  │   every 2 seconds        │  (JSON)       │
-└─────────────┘                          └──────┬────────┘
-                                                │
-        ┌───────────────────────────────────────┘
-        │  Meanwhile, user opens email...
-        ▼
-┌─────────────┐   GET /auth/magic/{token}     ┌──────────────┐
-│  Email Link │ ─────────────────────────────► │ magicShow()   │
-│  (browser)  │                                │ (read-only)   │
-└─────────────┘                                └──────┬───────┘
-        │                                             │
-        ▼                                             ▼
-┌─────────────┐                              ┌──────────────┐
-│ Confirm     │   POST /auth/magic/{token}   │ magicConsume()│
-│ Page (form) │ ───────────────────────────► │ marks approved│
-│ "Sign in"   │                              │ creates token │
-└─────────────┘                              │ sets cookie   │
-                                             │ redirects home│
-                                             └──────────────┘
-
-        The GET never consumes the token — only the POST does.
-        This prevents email scanners (O365, Avast, Gmail corporate)
-        from invalidating tokens via pre-fetch.
-
-        Back on the wait page...
-        ┌───────────────────────────────────────┐
-        │  Next poll detects approved=true       │
-        │  → Creates Sanctum token               │
-        │  → Sets auth_token cookie              │
-        │  → Returns JSON with redirect URL      │
-        │  → Token remains in HttpOnly cookie    │
-        │  → Redirects to home                   │
-        └───────────────────────────────────────┘
-
-        If token expires (server or client timeout)...
-        ┌───────────────────────────────────────┐
-        │  Server returns "Token expired" or     │
-        │  client reaches MAX_ATTEMPTS           │
-        │  → Shows timeout message               │
-        │  → Auto-redirects to /login after 3s   │
-        └───────────────────────────────────────┘
-```
-
-## Routes
-
-All routes are registered in the `web` middleware group.
-
-| Method | URI | Name | Middleware | Purpose |
-|--------|-----|------|-----------|---------|
-| GET | `/login` | `login` | web | Show login form |
-| POST | `/auth/magic-link` | `login.magic-link` | web | Validate email, send magic link |
-| GET | `/magic/wait` | `magic.wait` | web | Show "check your email" page |
-| POST | `/magic/status` | `magic.status` | web, CSRF | Poll for token approval (JSON) and issue credentials after approval |
-| GET | `/auth/magic/{token}` | `auth.magic.show` | web | Show confirmation page (read-only) |
-| POST | `/auth/magic/{token}` | `auth.magic.consume` | web | Consume token, authenticate, redirect |
-| POST | `/logout` | `logout` | web, auth:sanctum, CSRF | Revoke token, invalidate session, redirect |
-
-## Configuration Reference
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `auth.enabled` | bool | `false` | Enable/disable the entire auth module |
-| `auth.user_model` | string | `App\Models\User` | Fully qualified User model class |
-| `auth.token_expiry` | int | `15` | Magic link validity in minutes |
-| `auth.home_route` | string | `home` | Named route for post-login redirect |
-| `auth.mail_subject` | string | `Magic Link Login` | Email subject (passed through `__()`) |
-| `auth.layout` | string | `layouts._auth` | Blade layout for auth pages |
-
-## Customizing Views
-
-### Option A: Publish and edit
-
-```bash
-php artisan vendor:publish --tag=ln-starter-views
-```
-
-Published to `resources/views/vendor/ln-starter/`. Laravel automatically picks up vendor-published views over the package originals.
-
-Files you can customize:
-
-| File | Purpose |
-|------|---------|
-| `layouts/_auth.blade.php` | Auth page layout (add your logo, CSS, branding) |
-| `auth/login.blade.php` | Login form |
-| `auth/magic_wait.blade.php` | "Check your email" polling page |
-| `auth/magic.blade.php` | Magic link confirmation (valid → sign-in form, invalid → error) |
-| `emails/magic-link.blade.php` | Email HTML template |
-
-### Option B: Use your own layout
-
-Point `auth.layout` to your project's layout:
-
-```php
-'auth' => [
-    'layout' => 'layouts._auth',  // your own layout
-],
-```
-
-All auth views use `@extends(config('ln-starter.auth.layout'))`, so they'll inherit your layout automatically.
-
-## Translating
-
-All user-facing strings use Laravel's `__()` helper. To translate:
-
-1. Create language files in `lang/{locale}.json` or `lang/{locale}/` directories
-2. Add translations for keys like:
-   - `Login`, `E-mail address`, `Send magic link`
-   - `Check email`, `Waiting for confirmation`
-   - `Login successful!`, `Problem with the link`
-   - `Hello`, `Sign in`, `If you did not request this link, ignore this email.`
-   - etc.
-
-The email subject is also translatable — set `auth.mail_subject` to the key, and it will be passed through `__()`.
-
-## Security Notes
-
-- **Token validity**: Tokens expire after `token_expiry` minutes (default 15) and can only be used once. The wait page auto-redirects to login when the token expires (server-side detection) or when the polling timeout is reached (client-side)
-- **Two-step verification**: The email link (GET) only shows a confirmation page — it never consumes the token. The user must click "Sign in" (POST) to authenticate. This prevents email security scanners (Office 365, Avast, Gmail corporate) from invalidating tokens via URL pre-fetch
-- **Session tracking**: The wait page uses session to track which token belongs to which browser session
-- **Cookie auth bridge**: The `auth_token` cookie is HttpOnly, uses the configured session SameSite/domain/path settings, and is Secure in production. `AuthorizationFromCookie` reads it server-side and converts it to an `Authorization: Bearer` header for Sanctum; client JavaScript cannot read the token
-- **No auto-registration**: The controller looks up the user by email. If the email does not belong to an existing user, the magic link is not sent. Users must be created through a separate registration flow
-- **CSRF**: Login, magic-status polling, magic-link confirmation, and logout use normal CSRF protection. Authentication never disables CSRF automatically. Render logout with `<x-ln.logout-form />` or include `@csrf` in your own POST form.
-
-## Multilingual auth
-
-When `count(config('app.languages')) > 1` (i.e. `LocaleManager::multilingual()` is true), the package registers auth routes differently:
-
-- **Localized routes** are wrapped in `Route::prefix('{locale}')->middleware(['web', 'ln.locale'])`. Every named route (`login`, `login.magic-link`, `magic.wait`, `magic.status`, `auth.magic.show`, `auth.magic.consume`, `logout`) is preserved exactly — no renaming.
-- **Bare `/login`** gets an UNNAMED `GET /login` route with `ln.locale.redirect` middleware. It negotiates the user's locale from the `Accept-Language` header (or session / fallback) and 302s to `/{locale}/login`. Being unnamed, it does not clobber the `login` name on the localized route.
-- **`route('login')` resolvability** is guaranteed globally by `PrepareLocale` (alias `ln.locale.prepare`), which must be registered as the first global `web` middleware in `bootstrap/app.php`. It seeds `URL::defaults(['locale' => $negotiated])` before routing so any `route()` call — including `RequireAuthentication`'s 401 redirect and magic-link emails — always has a `locale` default.
-
-For apps that own their own `AuthController` and `routes/auth.php` (e.g. DocuFlow), set `ln-starter.auth.enabled = false` and apply the `{locale}` prefix inside your own `routes/auth.php`. The `ln.locale.prepare` and `ln.locale.redirect` aliases are available regardless of `auth.enabled`.
-
-## Overriding the Controller
-
-If you need custom behavior (e.g., add logging, restrict by domain, change redirect logic), extend the controller in your project:
-
-```php
-namespace App\Http\Controllers;
-
-use LiveNetworks\LnStarter\Http\Controllers\AuthController as BaseAuthController;
-
-class AuthController extends BaseAuthController
+final class LoginEligibility implements AuthEligibility
 {
-    public function magicLink(Request $request)
+    public function allows(Authenticatable $user): bool
     {
-        // Only allow company emails
-        $validated = $request->validate(['email' => 'required|email']);
-
-        if (!str_ends_with($validated['email'], '@yourcompany.com')) {
-            return back()->withErrors(['email' => __('Only company emails are allowed.')]);
-        }
-
-        return parent::magicLink($request);
+        return $user->is_active && ! $user->is_suspended;
     }
 }
 ```
 
-Then define your own routes pointing to your controller, and disable the package routes by setting `auth.enabled` to `false` (or override specific routes in your `web.php` — project routes take priority).
+Eligibility and the canonical email key are checked both when the queued job
+creates the attempt and again inside the locked consume transaction.
+
+## Flow
+
+1. `POST /auth/magic-link` always returns the same public response. It creates
+   opaque proofs and dispatches an encrypted queue job.
+2. The job resolves eligibility, stores only one-way hashes, and sends the raw
+   link and six-digit code only to the eligible user's email.
+3. A link `GET` never authenticates. It exchanges the URL secret for a bounded,
+   short-lived session context and redirects to a token-free confirmation URL.
+4. A CSRF-protected confirmation `POST`, or the requesting browser's code POST,
+   locks and consumes the attempt.
+5. The winner is marked consumed, sibling pending attempts are revoked, the web
+   session ID is regenerated, and the user is redirected to `home_route`.
+
+Opening the email link on a phone signs in the phone after explicit confirmation
+and makes the desktop code unusable. To sign in the desktop, leave the link
+unconfirmed and enter the code there.
+
+## Routes
+
+All state-changing routes use the `web` middleware group and normal CSRF.
+Static routes are intentionally registered before the wildcard token route.
+
+| Method | URI | Name | Purpose |
+|---|---|---|---|
+| GET | `/login` | `login` | Login form |
+| POST | `/auth/magic-link` | `login.magic-link` | Generic response and queued processing |
+| GET | `/auth/magic/code` | `auth.magic.code.form` | Code entry in the requesting session |
+| POST | `/auth/magic/code` | `auth.magic.code` | Consume the code |
+| GET | `/auth/magic/{token}` | `auth.magic.link.open` | Exchange URL proof for a session context |
+| GET | `/auth/magic/confirm/{context}` | `auth.magic.link.confirm` | Token-free confirmation page |
+| POST | `/auth/magic/confirm/{context}` | `auth.magic.link.consume` | Consume the link proof |
+| POST | `/logout` | `logout` | Invalidate the web session and rotate CSRF |
+
+For one compatibility release, `/magic/wait` and `GET|POST /magic/status` are
+read-only tombstones. They return HTTP 410 and never issue credentials. Old
+`auth.magic.show`/`auth.magic.consume` route names are deliberately absent so a
+secret can never be appended to a query string by an old helper call.
+
+## Rate limits and concurrency
+
+Request and verification paths use layered email/session/IP/context throttles.
+The code counter increases only after a failed verification. The fifth correct
+entry is accepted; the fifth wrong entry locks the code proof while the link can
+still succeed. Database row locks and Laravel route session locks guarantee that
+only one concurrent proof can win.
+
+Use a row-locking production database. SQLite tests cover contracts, while the
+repository CI also runs the concurrency suite against MySQL.
+
+## Secret storage and pepper rotation
+
+The database stores HMAC/SHA-256 digests, never raw email, link token, code, or
+session nonce. Model serialization also hides all proof hashes.
+
+To rotate a pepper without invalidating outstanding attempts:
+
+1. Add the new key while retaining the old key.
+2. Change `peppers.current` to the new ID.
+3. Wait longer than `token_expiry` plus queue delay.
+4. Remove the old key.
+
+Attempts retain their `pepper_id`; a referenced key that is missing fails closed
+and emits a security event.
+
+## Upgrade from auth v1
+
+Before enabling v2:
+
+```bash
+php artisan ln-starter:auth-v2-audit
+php artisan ln-starter:auth-v2-readiness
+php artisan ln-starter:auth-v2-cutover --force
+php artisan migrate
+```
+
+The audit rejects published v1 auth views that still poll status endpoints, use
+old route names/session keys, or omit the code. Port or republish those views.
+The readiness command validates production queue/session locks and confirms
+that every unexpired pending attempt still has its referenced pepper key.
+The cutover command explicitly invalidates pending v1 proofs; already-issued v1
+links cannot be preserved safely across the state-machine change.
+
+Install preflight performs the same readiness and view checks before publishing,
+preventing a half-published upgrade. Expired or terminal records can later be
+cleaned with:
+
+```bash
+php artisan magic-login-attempts:cleanup --hours=24
+```
+
+The legacy alias `magic-link-tokens:cleanup` remains available for one release.
+
+## Views and localization
+
+Publish views with `php artisan vendor:publish --tag=ln-starter-views`. The v2
+surface contains `auth/login.blade.php`, `auth/magic_code.blade.php`,
+`auth/magic.blade.php`, and `emails/magic-link.blade.php`. Published v1
+`magic_wait.blade.php`/`magic_success.blade.php` files must be removed or ported.
+
+With multiple `app.languages`, the same named routes are localized under
+`/{locale}`. `ln.locale.prepare` seeds the URL default before routing so links
+generated by queued mail keep the request locale.
+
+## Security logging
+
+Set `LN_SECURITY_LOG_CHANNEL` to a dedicated structured channel if desired.
+Events include an event name, request ID, route template, method, attempt ID,
+outcome, and safe reason codes. Email addresses, raw tokens/codes, cookies,
+authorization headers, session IDs, and request bodies are never logged.
+
+## Customizing behavior
+
+Prefer the eligibility contract and configuration hooks over subclassing the
+controller. If an application owns its full auth controller/routes, set
+`ln-starter.auth.enabled=false`; the generic locale and bearer-API middleware
+remain available independently.

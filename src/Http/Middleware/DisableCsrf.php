@@ -18,8 +18,9 @@ use Illuminate\Http\Request;
  *   });
  *
  * VerifyCsrfToken only honors this marker when the request contains an
- * Authorization bearer token. Session-only and cookie-only requests remain
- * CSRF protected even though Sanctum can authenticate them.
+ * Authorization bearer token. Requests with an authenticated web session
+ * remain CSRF protected even when a bearer header is also present, because
+ * Sanctum otherwise falls back to that session guard.
  */
 class DisableCsrf
 {
