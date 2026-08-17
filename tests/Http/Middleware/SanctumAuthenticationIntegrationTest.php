@@ -38,6 +38,9 @@ class SanctumAuthenticationIntegrationTest extends TestCase
     {
         parent::setUp();
 
+        Schema::dropIfExists('personal_access_tokens');
+        Schema::dropIfExists('users');
+
         Schema::create('users', function (Blueprint $table) {
             $table->id();
             $table->string('email')->unique();

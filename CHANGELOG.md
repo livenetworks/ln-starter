@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - Add `<x-ln.logout-form />` as the CSRF-safe package logout control
 - Change `/magic/status` from GET to POST because approval creates a token and cookie
 - Accepted the magic-link v2 link-plus-code state-machine design and security acceptance matrix; implementation follows after the observability foundation
+- Tighten the auth-v2 specification with constrained route ordering, bounded confirmation contexts, explicit cross-device UX, layered rate limits, versioned pepper rotation, and a v1 published-view migration policy
+- Add a Laravel 11/12/13 CI matrix that runs on SQLite and row-locking MySQL
 - Auth views redesigned: card-based layout with gradient backgrounds, inline SVG icons, animations, and richer UX (info boxes, countdown, troubleshooting tips)
 - Auth SCSS (`auth.scss`) rewritten as fully standalone — no ln-acme dependency; uses CSS custom properties and self-contained BEM classes
 - Auth layout (`_auth.blade.php`) simplified to minimal HTML shell; views handle their own full-screen layout
