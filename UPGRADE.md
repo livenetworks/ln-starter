@@ -92,3 +92,34 @@ In production this now also fails when the database cannot provide
 transactional row locking (SQLite, or a non-InnoDB attempts/audit table on
 MySQL/MariaDB), because `lockForUpdate()` is silently a no-op there and
 single-use proof consumption would not be atomic.
+
+## Production requirements added in this release
+
+Readiness now refuses to boot in production unless the deployment is safe.
+Each of these was previously unchecked:
+
+| Requirement | Why |
+|---|---|
+| `APP_URL` starts with `https://` | The magic link inherits it; http means the proof travels in the clear |
+| `SESSION_SECURE_COOKIE=true` | After login the session cookie *is* the credential |
+| Session cookie is http-only | Keeps it out of reach of page scripts |
+| `session.same_site` is `lax` or `strict` | `none` sends the credential cross-site |
+| No apex session cookie domain | A `.example` domain shares the credential with every subdomain |
+| Configured, non-`sync` queue connection | Delivery is queued; a missing worker fails logins silently |
+| Configured mailer | Same reason |
+| Transactional row locking | SQLite and MyISAM break single-use consumption with no error |
+
+Behind a TLS-terminating proxy, configure TrustProxies so generated URLs are
+`https`. Run `php artisan ln-starter:auth-v2-readiness` before sending traffic.
+
+## Running the test suite against a server database
+
+The suite resets server-backed test databases between test classes. That is now
+opt-in and allow-listed:
+
+```bash
+LN_STARTER_ALLOW_TEST_DB_RESET=1 DB_CONNECTION=mysql DB_DATABASE=ln_starter_scratch vendor/bin/phpunit
+```
+
+Without the variable, or with a database name that is not allow-listed, the
+suite refuses to run. See `docs/deployment.md`.

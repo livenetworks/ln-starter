@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Production support matrix and release contract (ADR 0003): Laravel 12/13 supported, Laravel 11 compatibility-only, MySQL/InnoDB and PostgreSQL supported, SQLite refused in production
+- `docs/deployment.md` with a deploy checklist, queue-worker runbook, monitoring signals, pepper rotation and a rollback procedure
+- Fresh-consumer install and upgrade harnesses (`scripts/consumer-install.php`, `scripts/consumer-upgrade.php`) driving package discovery, publishing, installer idempotency, migrations, config/route/view caching, readiness and HTTP smoke tests in a throwaway Laravel application
+- `composer verify-artifact`: builds the distributable archive and asserts its contents, absence of `vendor/`/`.env`/tests/CI/agent settings, manifest validity and installability
+- Production deployment readiness: https `APP_URL`, secure/http-only/same-site session cookie, no apex cookie domain, configured queue connection and mailer — all config-only, no network or mail
+- Fail-closed test-database guard: dropping all tables requires `APP_ENV=testing`, an explicit opt-in variable and an allow-listed database name, and refuses production-like names outright
+- Cache-compatibility tests: serializable config, no closure-action routes, `{token}` stays a placeholder in the cached route table, no query during package boot, and a simulated Octane scope reset
 - Structured security event pipeline: versioned envelope, closed severity/outcome/reason-code vocabularies, and a public `SecurityEventLogger` API for package and application events (ADR 0002)
 - `SecurityAuditSink` contract plus `SecurityEventDispatcher::extend()`, so applications add destinations without modifying package code
 - Recursive allow-list `ContextSanitizer` with deny-list veto, depth/field/value bounds, invalid-UTF-8 handling, and no `__toString()` on arbitrary objects
@@ -58,6 +65,8 @@ All notable changes to this project will be documented in this file.
 - Implement the accepted magic-link v2 link-plus-code state machine and its security acceptance suite
 - Tighten the auth-v2 specification with constrained route ordering, bounded confirmation contexts, explicit cross-device UX, layered rate limits, versioned pepper rotation, and a v1 published-view migration policy
 - Add a Laravel 11/12/13 CI matrix that runs on SQLite, MySQL, and PostgreSQL — the stack's documented primary database
+- Exclude Laravel 11 × PHP 8.5 from CI: 11.x reached end of life before PHP 8.5 shipped and will never receive a compatibility fix, so the lane would be permanently red without testing anything
+- Exclude `.claude/`, `.gitignore` and `.gitmodules` from the release archive
 - Add auth-v2 upgrade audit/readiness/cutover commands, published-view preflight, retention-aware cleanup, and a separate optional Sanctum migration tag
 - Auth views redesigned: card-based layout with gradient backgrounds, inline SVG icons, animations, and richer UX (info boxes, countdown, troubleshooting tips)
 - Auth SCSS (`auth.scss`) rewritten as fully standalone — no ln-acme dependency; uses CSS custom properties and self-contained BEM classes

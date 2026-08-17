@@ -2,9 +2,18 @@
 
 Laravel foundation package by Live Networks. Base classes and conventions for building dual-mode (browser + API) Laravel applications.
 
-Laravel 12 and 13 are the supported deployment targets. Laravel 11 remains in
-the compatibility test lane for existing applications, but its final upstream
-release is EOL and currently blocked by Composer security advisories.
+**Laravel 12 and 13 are the supported deployment targets** and are gated on
+`composer audit`. Laravel 11 remains only as an end-of-life compatibility lane
+so existing applications can still install the package; a green Laravel 11 lane
+proves installability, not that Laravel 11 is security-supported. Do not deploy
+it as a production target.
+
+MySQL/MariaDB (InnoDB) and PostgreSQL are supported databases. SQLite is for
+development and unit tests only — auth v2 refuses it in production because it
+cannot provide the row locking that single-use proof consumption depends on.
+
+See [`docs/deployment.md`](docs/deployment.md) and
+[ADR 0003](docs/adr/0003-auth-v2-production-and-release-contract.md).
 
 ## Core principle
 
@@ -110,9 +119,11 @@ ln-starter/
 │   ├── auth.md                        # Auth module setup & flow
 │   ├── auth-v2-test-matrix.md         # Security acceptance matrix for auth v2
 │   ├── security-logging.md            # Security events, sinks, retention
+│   ├── deployment.md                  # Deploy checklist, runbook, rollback
 │   ├── adr/
 │   │   ├── 0001-magic-link-authentication-v2.md # Accepted auth v2 design
-│   │   └── 0002-security-audit-logging-and-observability.md # Audit pipeline
+│   │   ├── 0002-security-audit-logging-and-observability.md # Audit pipeline
+│   │   └── 0003-auth-v2-production-and-release-contract.md  # Support matrix
 │   ├── dual-mode-response.md          # How the response system works
 │   ├── read-write-models.md           # Read/write model separation
 │   ├── message-dto.md                 # Message DTO usage
