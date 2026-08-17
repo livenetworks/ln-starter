@@ -164,8 +164,10 @@ class SecurityObservabilityConfiguration
         $driver = DB::connection($connection)->getDriverName();
 
         if (in_array($driver, ['mysql', 'mariadb'], true)) {
-            // Same fail-closed rule as the auth attempts table.
-            AuthV2Configuration::assertInnoDbTable(DatabaseSink::TABLE);
+            // Same fail-closed rule as the auth attempts table, and pinned to
+            // the sink's own connection: the audit trail may live on a
+            // different database from the application's default.
+            AuthV2Configuration::assertInnoDbTable(DatabaseSink::TABLE, $connection);
         }
     }
 

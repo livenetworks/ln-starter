@@ -35,6 +35,15 @@ All notable changes to this project will be documented in this file.
 - Fail auth-v2 production readiness when the database cannot provide transactional row locking (SQLite, or a non-InnoDB `magic_login_attempts` table), since `lockForUpdate()` is silently a no-op there and single-use consumption would not be atomic
 
 ### Fixed
+- Report a throttled magic-link open as `auth.magic.rate_limited`; it was previously reported as `auth.magic.proof.replayed` with `proof_expired`, putting a false reuse claim in the audit trail for a valid pending link
+- Emit reason-specific rate-limit events for code verification and link confirmation; only the initial email request was instrumented
+- Probe the storage engine on the connection the audit table actually lives on; a sink using a separate connection could pass readiness against the default database
+- Guard `SecurityAuditSink::name()` as well as `write()`; a sink throwing from `name()` escaped into the auth flow and defeated the fail-open guarantee
+- Pseudonymize any principal reference that is not already a versioned digest, and drop `principal_key`/`user_id` from the context allow-list, so the public API cannot publish a raw identifier
+- Bind `RequestContext` as scoped and resolve it per event, so Octane requests and successive queue jobs cannot inherit each other's correlation ID
+- Persist `environment`, `application`, and `guard` in the database sink; a shared audit store could not attribute a row to its origin
+- Emit `security.readiness.failed` with `pepper_unavailable` instead of the undocumented `auth.magic.pepper.unavailable`, matching UPGRADE.md
+- Assert exactly one `auth.magic.proof.accepted` in the real forked race test through a shared database sink, rather than only counting in-process winners
 - Isolate the test database between test classes on server-backed connections; without it, tables created by one class leaked into the next and the MySQL lane failed on table-ordering rather than on behaviour
 - Pin the MySQL test connection to InnoDB instead of the server default, so the row-lock race contract is never exercised on a non-transactional engine
 - Run the concurrency race test on PostgreSQL as well as MySQL/MariaDB, rather than skipping it on every non-MySQL driver

@@ -34,15 +34,20 @@ final class ContextSanitizer
      * Context keys this package emits. Applications extend the list through
      * `ln-starter.logging.context_allow_list`.
      *
+     * `principal_key` and `user_id` are deliberately absent: both are promoted
+     * to envelope fields by SecurityEventLogger, where the value is validated
+     * and pseudonymized. Leaving them allow-listed here would let an
+     * unvalidated raw identifier ride along inside `context`.
+     *
      * @var list<string>
      */
     public const DEFAULT_ALLOW_LIST = [
         'attempt_id', 'auth_method', 'channel', 'consumed_via', 'count',
         'deleted', 'driver', 'duration_ms', 'engine', 'event_name', 'guard',
         'http_method', 'limit', 'locale', 'mailer', 'matched', 'outcome',
-        'pepper_id', 'principal_key', 'queue', 'reason', 'reason_code',
+        'pepper_id', 'queue', 'reason', 'reason_code',
         'retention_days', 'route', 'schema_version', 'sink', 'status_code',
-        'table', 'throwable_class', 'user_id', 'window_seconds',
+        'table', 'throwable_class', 'window_seconds',
     ];
 
     /**

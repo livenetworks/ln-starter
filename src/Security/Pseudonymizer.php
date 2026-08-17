@@ -24,7 +24,20 @@ final class Pseudonymizer
      */
     public const INSECURE_PLACEHOLDER = 'please-change-me';
 
+    /**
+     * Shape of a value this class produces: `<version>:<sha256 hex>`.
+     *
+     * Used to reject anything else at the logging boundary, so a caller cannot
+     * put a raw email or user ID into the principal field by mistake.
+     */
+    public const KEY_PATTERN = '/^[A-Za-z0-9_.-]{1,32}:[0-9a-f]{64}$/';
+
     private const MIN_KEY_BYTES = 32;
+
+    public static function isPseudonymKey(mixed $value): bool
+    {
+        return is_string($value) && preg_match(self::KEY_PATTERN, $value) === 1;
+    }
 
     public function currentVersion(): string
     {

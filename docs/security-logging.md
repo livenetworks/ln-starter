@@ -64,6 +64,9 @@ Every event is serialized to the same flat structure.
 | `duration_ms` | Monotonic, non-negative |
 | `context` | Sanitized key/value map |
 
+Both sinks persist the whole envelope, `environment`, `application`, and `guard`
+included, so a shared audit store stays attributable to the app that wrote it.
+
 `schema_version` only changes when a field is removed, renamed, or retyped.
 Adding an optional field is non-breaking.
 
@@ -123,6 +126,12 @@ Enforced structurally, not by convention:
 - **Safety.** Invalid UTF-8 is repaired, non-finite floats are replaced,
   arbitrary objects are described rather than stringified (`__toString()` is
   never called), and the sanitizer never throws.
+
+`principal_key` and `user_id` are **not** allow-listed in context: both are
+promoted to validated envelope fields, and permitting them in `context` would
+be a second, unvalidated route in. Any value you pass as `principalKey` that is
+not already a `<version>:<digest>` pseudonym is pseudonymized for you rather
+than trusted — the privacy guarantee holds for application code too.
 
 To emit your own context keys, register them:
 
@@ -223,8 +232,12 @@ class SiemSink implements SecurityAuditSink
 $this->app->make(SecurityEventDispatcher::class)->extend(new SiemSink());
 ```
 
-Your sink may throw — the dispatcher isolates it. It must not re-enter the
-dispatcher.
+Your sink may throw — from `write()` **or** from `name()`; the dispatcher
+guards both. It must not re-enter the dispatcher.
+
+If the audit trail lives on its own connection, set
+`logging.database.connection`. Readiness then probes that connection, not the
+application default.
 
 ## Failure policy
 
@@ -312,6 +325,13 @@ The log sink's structured context maps directly onto a JSON formatter:
 ```env
 LN_SECURITY_LOG_CHANNEL=security
 ```
+
+### Long-running runtimes
+
+`RequestContext` is a **scoped** binding, not a singleton, so Octane requests
+and successive queue jobs never inherit one another's correlation ID. The
+dispatcher and the sink registry stay singletons and resolve the current scoped
+context per event.
 
 Useful pivots: `correlation_id` to reconstruct a full login attempt across HTTP
 and queue, `principal_key` for per-actor activity, `reason_code` for failure

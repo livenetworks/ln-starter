@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use LiveNetworks\LnStarter\Models\MagicLoginAttempt;
+use LiveNetworks\LnStarter\Security\ReasonCode;
+use LiveNetworks\LnStarter\Security\SecurityEventName;
 use RuntimeException;
 use Throwable;
 
@@ -82,7 +84,7 @@ class AuthV2Configuration
             return;
         }
 
-        self::assertInnoDbTable('magic_login_attempts');
+        self::assertInnoDbTable('magic_login_attempts', config('database.default'));
     }
 
     /**
@@ -92,10 +94,13 @@ class AuthV2Configuration
      * prove row locking works, so readiness must not pass. The failure message
      * never includes connection credentials.
      */
-    public static function assertInnoDbTable(string $table): void
+    public static function assertInnoDbTable(string $table, ?string $connection = null): void
     {
         try {
-            $row = DB::selectOne(
+            // Must run on the SAME connection the table lives on. Using the
+            // default connection would happily inspect a different database
+            // and report a pass for a table it never looked at.
+            $row = DB::connection($connection)->selectOne(
                 'select engine as ln_engine from information_schema.tables'
                 . ' where table_schema = database() and table_name = ?',
                 [$table]
@@ -149,8 +154,10 @@ class AuthV2Configuration
             try {
                 $this->proofs->pepper((string) $pepperId);
             } catch (RuntimeException) {
-                $this->logger->record('auth.magic.pepper.unavailable', [
-                    'outcome' => 'unavailable',
+                $this->logger->record(SecurityEventName::READINESS_FAILED, [
+                    'reason' => ReasonCode::PepperUnavailable->value,
+                    'outcome' => 'error',
+                    'pepper_id' => (string) $pepperId,
                 ]);
 
                 throw new RuntimeException(

@@ -160,7 +160,19 @@ class AuthController extends LNController
             return $this->proofFailureResponse($request);
         }
 
-        if ($this->codeRateLimited($request, $context) || !preg_match('/^\d{6}$/', $code)) {
+        if ($throttled = $this->codeRateLimitReason($request, $context)) {
+            $this->logger->event(
+                eventName: SecurityEventName::RATE_LIMITED,
+                outcome: Outcome::Rejected,
+                reasonCode: $throttled,
+                attemptId: is_string($context['attempt_id'] ?? null) ? $context['attempt_id'] : null,
+                authMethod: 'magic_code',
+            );
+
+            return $this->proofFailureResponse($request);
+        }
+
+        if (!preg_match('/^\d{6}$/', $code)) {
             return $this->proofFailureResponse($request);
         }
 
@@ -180,17 +192,28 @@ class AuthController extends LNController
     public function openLink(Request $request, string $token): RedirectResponse
     {
         $linkHash = $this->proofs->hashLinkToken($token);
-        $attempt = null;
+        $contextId = $this->proofs->generateContextId();
+        $throttled = $this->linkOpenRateLimitReason($request, $linkHash);
 
-        if (!$this->linkOpenRateLimited($request, $linkHash)) {
-            $attempt = MagicLoginAttempt::query()
-                ->where('link_token_hash', $linkHash)
-                ->where('status', MagicLoginAttempt::STATUS_PENDING)
-                ->where('expires_at', '>', now())
-                ->first();
+        if ($throttled !== null) {
+            // Throttling says nothing about the proof itself. Reporting it as a
+            // replay would put a false "this token was reused" claim in the
+            // audit trail for a perfectly valid pending link.
+            $this->logger->event(
+                eventName: SecurityEventName::RATE_LIMITED,
+                outcome: Outcome::Rejected,
+                reasonCode: $throttled,
+                authMethod: 'magic_link',
+            );
+
+            return $this->linkConfirmationRedirect($contextId);
         }
 
-        $contextId = $this->proofs->generateContextId();
+        $attempt = MagicLoginAttempt::query()
+            ->where('link_token_hash', $linkHash)
+            ->where('status', MagicLoginAttempt::STATUS_PENDING)
+            ->where('expires_at', '>', now())
+            ->first();
 
         if ($attempt) {
             $this->storeConfirmationContext($request, $contextId, $attempt);
@@ -209,6 +232,12 @@ class AuthController extends LNController
 
             $this->stateMachine->reportReplay($known, 'magic_link');
         }
+
+        return $this->linkConfirmationRedirect($contextId);
+    }
+
+    private function linkConfirmationRedirect(string $contextId): RedirectResponse
+    {
 
         return redirect()
             ->route('auth.magic.link.confirm', ['context' => $contextId], 303)
@@ -237,7 +266,14 @@ class AuthController extends LNController
 
     public function consumeLink(Request $request, string $context): JsonResponse|RedirectResponse
     {
-        if ($this->linkConfirmationRateLimited($request, $context)) {
+        if ($throttled = $this->linkConfirmationRateLimitReason($request, $context)) {
+            $this->logger->event(
+                eventName: SecurityEventName::RATE_LIMITED,
+                outcome: Outcome::Rejected,
+                reasonCode: $throttled,
+                authMethod: 'magic_link',
+            );
+
             return $this->proofFailureResponse($request, 'login');
         }
 
@@ -430,11 +466,6 @@ class AuthController extends LNController
         ], 900);
     }
 
-    private function creationRateLimited(Request $request, string $emailKey): bool
-    {
-        return $this->creationRateLimitReason($request, $emailKey) !== null;
-    }
-
     /**
      * @param array<int, array{string, int, ReasonCode}> $limits
      */
@@ -453,46 +484,34 @@ class AuthController extends LNController
         return null;
     }
 
-    private function codeRateLimited(Request $request, array $context): bool
+    /**
+     * All throttle keys are HMACs or hashes, so the reason code identifies the
+     * dimension that tripped without the raw identifier ever being logged.
+     */
+    private function codeRateLimitReason(Request $request, array $context): ?ReasonCode
     {
-        return $this->limited([
-            ['auth-code-email:' . ($context['email_key'] ?? 'missing'), 10],
-            ['auth-code-session:' . $this->sessionKey($request), 10],
-            ['auth-code-ip:' . $this->ipKey($request), 50],
+        return $this->limitedBy([
+            ['auth-code-email:' . ($context['email_key'] ?? 'missing'), 10, ReasonCode::RateLimitedEmail],
+            ['auth-code-session:' . $this->sessionKey($request), 10, ReasonCode::RateLimitedSession],
+            ['auth-code-ip:' . $this->ipKey($request), 50, ReasonCode::RateLimitedIp],
         ], 900);
     }
 
-    private function linkOpenRateLimited(Request $request, string $linkHash): bool
+    private function linkOpenRateLimitReason(Request $request, string $linkHash): ?ReasonCode
     {
-        return $this->limited([
-            ['auth-link-proof:' . $linkHash, 10],
-            ['auth-link-ip:' . $this->ipKey($request), 100],
+        return $this->limitedBy([
+            ['auth-link-proof:' . $linkHash, 10, ReasonCode::RateLimitedSession],
+            ['auth-link-ip:' . $this->ipKey($request), 100, ReasonCode::RateLimitedIp],
         ], 900);
     }
 
-    private function linkConfirmationRateLimited(Request $request, string $context): bool
+    private function linkConfirmationRateLimitReason(Request $request, string $context): ?ReasonCode
     {
-        return $this->limited([
-            ['auth-confirm-context:' . $this->proofs->rateKey('context', $context), 5],
-            ['auth-confirm-session:' . $this->sessionKey($request), 5],
-            ['auth-confirm-ip:' . $this->ipKey($request), 50],
+        return $this->limitedBy([
+            ['auth-confirm-context:' . $this->proofs->rateKey('context', $context), 5, ReasonCode::RateLimitedSession],
+            ['auth-confirm-session:' . $this->sessionKey($request), 5, ReasonCode::RateLimitedSession],
+            ['auth-confirm-ip:' . $this->ipKey($request), 50, ReasonCode::RateLimitedIp],
         ], 900);
-    }
-
-    /** @param array<int, array{string, int}> $limits */
-    private function limited(array $limits, int $decaySeconds): bool
-    {
-        foreach ($limits as [$key, $maxAttempts]) {
-            if (RateLimiter::tooManyAttempts($key, $maxAttempts)) {
-                return true;
-            }
-        }
-
-        foreach ($limits as [$key]) {
-            RateLimiter::hit($key, $decaySeconds);
-        }
-
-        return false;
     }
 
     private function sessionKey(Request $request): string

@@ -30,6 +30,11 @@ return new class extends Migration
             $table->string('severity', 16);
             $table->string('outcome', 16);
             $table->string('reason_code', 48)->nullable();
+            // A shared audit database receives events from several apps and
+            // environments; without these the origin of a row is unknowable.
+            $table->string('environment', 32)->nullable();
+            $table->string('application', 96)->nullable();
+            $table->string('guard', 32)->nullable();
             $table->string('request_id', 128)->nullable();
             $table->string('correlation_id', 128)->nullable();
             $table->string('principal_key', 96)->nullable();
@@ -50,6 +55,7 @@ return new class extends Migration
             $table->index('outcome');
             $table->index('principal_key');
             $table->index('attempt_id');
+            $table->index(['application', 'environment']);
         });
     }
 

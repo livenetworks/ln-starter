@@ -75,7 +75,10 @@ class SecurityEventLogger
             outcome: $outcome,
             reasonCode: $reasonCode,
             context: $context,
-            principalKey: $principalKey,
+            // Enforced at the boundary rather than trusted: the public API is
+            // callable by application code, and a raw email or user ID passed
+            // here would otherwise land in every sink.
+            principalKey: $this->safePrincipalKey($principalKey),
             attemptId: $attemptId,
             durationMs: $durationMs,
             authMethod: $authMethod,
@@ -106,6 +109,9 @@ class SecurityEventLogger
             ? (float) $context['duration_ms']
             : null;
 
+        // Both are run through safePrincipalKey() downstream, so a caller that
+        // puts a raw address in `principal_key` gets it pseudonymized rather
+        // than published.
         $principalKey = null;
         if (isset($context['principal_key']) && is_string($context['principal_key'])) {
             $principalKey = $context['principal_key'];
@@ -133,6 +139,26 @@ class SecurityEventLogger
             attemptId: $attemptId,
             durationMs: $duration,
         );
+    }
+
+    /**
+     * Accept only values this package produced.
+     *
+     * Anything else — a raw email, a bare user ID, an opaque string from an
+     * application — is pseudonymized rather than trusted, so the privacy
+     * guarantee holds for consumer code as well as for the built-in flow.
+     */
+    private function safePrincipalKey(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (Pseudonymizer::isPseudonymKey($value)) {
+            return $value;
+        }
+
+        return $this->pseudonymizer->tryForPurpose('principal', $value);
     }
 
     public static function severityFor(Outcome $outcome): Severity

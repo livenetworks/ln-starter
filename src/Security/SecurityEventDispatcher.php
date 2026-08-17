@@ -2,6 +2,7 @@
 
 namespace LiveNetworks\LnStarter\Security;
 
+use Closure;
 use Illuminate\Support\Facades\Log;
 use LiveNetworks\LnStarter\Contracts\SecurityAuditSink;
 use Throwable;
@@ -26,10 +27,26 @@ class SecurityEventDispatcher
      */
     private bool $reportingFailure = false;
 
+    /** @var Closure(): RequestContext */
+    private readonly Closure $resolveContext;
+
+    /**
+     * @param RequestContext|(Closure(): RequestContext) $requestContext
+     *        A closure keeps this singleton reading the current scoped context
+     *        instead of pinning one instance for the process lifetime.
+     */
     public function __construct(
         private readonly ContextSanitizer $sanitizer,
-        private readonly RequestContext $requestContext,
+        RequestContext|Closure $requestContext,
     ) {
+        $this->resolveContext = $requestContext instanceof Closure
+            ? $requestContext
+            : static fn (): RequestContext => $requestContext;
+    }
+
+    private function context(): RequestContext
+    {
+        return ($this->resolveContext)();
     }
 
     public function extend(SecurityAuditSink $sink): void
@@ -71,12 +88,12 @@ class SecurityEventDispatcher
                 severity: $severity,
                 outcome: $outcome,
                 reasonCode: $reasonCode,
-                requestId: $this->requestContext->ensureStarted(),
-                correlationId: $this->requestContext->correlationId(),
+                requestId: $this->context()->ensureStarted(),
+                correlationId: $this->context()->correlationId(),
                 environment: (string) config('app.env', 'unknown'),
                 application: (string) config('app.name', 'unknown'),
-                route: $this->requestContext->routeTemplate(),
-                httpMethod: $this->requestContext->method(),
+                route: $this->context()->routeTemplate(),
+                httpMethod: $this->context()->method(),
                 statusCode: $statusCode,
                 authMethod: $authMethod,
                 guard: $guard,
@@ -112,12 +129,28 @@ class SecurityEventDispatcher
         }
     }
 
+    /**
+     * A sink's own name() is third-party code too, so it is never called
+     * outside a guard. Without this, a sink that throws from name() would
+     * escape into the auth flow and defeat the whole fail-open guarantee.
+     */
+    private function sinkName(SecurityAuditSink $sink): string
+    {
+        try {
+            $name = $sink->name();
+
+            return is_string($name) && $name !== '' ? $name : $sink::class;
+        } catch (Throwable) {
+            return $sink::class;
+        }
+    }
+
     private function reportSinkFailure(SecurityAuditSink $sink, Throwable $exception): void
     {
         // Never include the original payload or the throwable message: both can
         // carry the very data the sink was supposed to have sanitized away.
         $detail = [
-            'sink' => $sink->name(),
+            'sink' => $this->sinkName($sink),
             'throwable_class' => $exception::class,
         ];
 
@@ -137,16 +170,18 @@ class SecurityEventDispatcher
                 severity: Severity::Error,
                 outcome: Outcome::Error,
                 reasonCode: ReasonCode::SinkFailure,
-                requestId: $this->requestContext->ensureStarted(),
-                correlationId: $this->requestContext->correlationId(),
+                requestId: $this->context()->ensureStarted(),
+                correlationId: $this->context()->correlationId(),
                 environment: (string) config('app.env', 'unknown'),
                 application: (string) config('app.name', 'unknown'),
                 context: $this->sanitizer->sanitize($detail),
             );
 
+            $brokenName = $detail['sink'];
+
             foreach ($this->sinks as $candidate) {
                 // Skip the sink we already know is broken.
-                if ($candidate->name() === $sink->name()) {
+                if ($candidate === $sink || $this->sinkName($candidate) === $brokenName) {
                     continue;
                 }
 

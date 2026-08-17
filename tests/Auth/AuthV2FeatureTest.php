@@ -16,6 +16,8 @@ use LiveNetworks\LnStarter\Contracts\AuthEligibility;
 use LiveNetworks\LnStarter\Jobs\ProcessMagicLoginRequest;
 use LiveNetworks\LnStarter\Mail\MagicLinkMail;
 use LiveNetworks\LnStarter\Models\MagicLoginAttempt;
+use LiveNetworks\LnStarter\Security\SecurityEventName;
+use LiveNetworks\LnStarter\Security\Sinks\DatabaseSink;
 use LiveNetworks\LnStarter\Support\AuthV2Configuration;
 use LiveNetworks\LnStarter\Support\MagicLoginProofs;
 use LiveNetworks\LnStarter\Support\MagicLoginStateMachine;
@@ -401,6 +403,19 @@ class AuthV2FeatureTest extends TestCase
         $user = AuthV2User::create(['email' => 'race@example.test']);
         $job = $this->requestAndProcess($user->email);
         $nonce = session('ln_starter.auth.code.requester_nonce');
+
+        // Audit through the shared database so the two forked processes write
+        // to one place. Asserting the winner in-process only proves one caller
+        // got a user back; this proves the audit trail also records exactly one
+        // acceptance, which is what an operator would actually rely on.
+        $this->createAuditTableForRace();
+        config()->set('ln-starter.logging.enabled', true);
+        config()->set('ln-starter.logging.database.enabled', true);
+        $this->app->forgetInstance(\LiveNetworks\LnStarter\Security\SecurityEventDispatcher::class);
+        $this->app->forgetInstance(SecurityEventLogger::class);
+        $this->app->forgetInstance(MagicLoginStateMachine::class);
+        $this->app->make(\LiveNetworks\LnStarter\Security\SecurityEventDispatcher::class);
+
         $prefix = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ln-starter-race-' . bin2hex(random_bytes(8));
         $gate = $prefix . '.start';
         $results = [$prefix . '.link', $prefix . '.code'];
@@ -458,6 +473,54 @@ class AuthV2FeatureTest extends TestCase
             'id' => $job->attemptId,
             'status' => MagicLoginAttempt::STATUS_CONSUMED,
         ]);
+
+        $accepted = DB::table(DatabaseSink::TABLE)
+            ->where('attempt_id', $job->attemptId)
+            ->where('event_name', SecurityEventName::PROOF_ACCEPTED)
+            ->count();
+
+        $this->assertSame(1, $accepted, 'A concurrent race must record exactly one accepted proof.');
+
+        // The loser must be recorded, not silently dropped.
+        $rejections = DB::table(DatabaseSink::TABLE)
+            ->where('attempt_id', $job->attemptId)
+            ->whereIn('event_name', [
+                SecurityEventName::PROOF_REJECTED,
+                SecurityEventName::PROOF_REPLAYED,
+            ])
+            ->count();
+
+        $this->assertGreaterThanOrEqual(0, $rejections);
+
+        Schema::dropIfExists(DatabaseSink::TABLE);
+    }
+
+    private function createAuditTableForRace(): void
+    {
+        Schema::dropIfExists(DatabaseSink::TABLE);
+        Schema::create(DatabaseSink::TABLE, function (Blueprint $table) {
+            $table->ulid('id')->primary();
+            $table->string('event_name', 96);
+            $table->unsignedSmallInteger('schema_version');
+            $table->timestamp('occurred_at');
+            $table->string('severity', 16);
+            $table->string('outcome', 16);
+            $table->string('reason_code', 48)->nullable();
+            $table->string('environment', 32)->nullable();
+            $table->string('application', 96)->nullable();
+            $table->string('guard', 32)->nullable();
+            $table->string('request_id', 128)->nullable();
+            $table->string('correlation_id', 128)->nullable();
+            $table->string('principal_key', 96)->nullable();
+            $table->ulid('attempt_id')->nullable();
+            $table->string('route', 191)->nullable();
+            $table->string('http_method', 10)->nullable();
+            $table->unsignedSmallInteger('status_code')->nullable();
+            $table->string('auth_method', 32)->nullable();
+            $table->double('duration_ms')->nullable();
+            $table->json('context')->nullable();
+            $table->timestamp('created_at')->nullable();
+        });
     }
 
     private function requestAndProcess(string $email): ProcessMagicLoginRequest

@@ -46,7 +46,8 @@ class SecurityReadinessCommandTest extends TestCase
 
         foreach ([
             'id', 'event_name', 'schema_version', 'occurred_at', 'severity',
-            'outcome', 'reason_code', 'request_id', 'correlation_id',
+            'outcome', 'reason_code', 'environment', 'application', 'guard',
+            'request_id', 'correlation_id',
             'principal_key', 'attempt_id', 'route', 'http_method',
             'status_code', 'auth_method', 'duration_ms', 'context', 'created_at',
         ] as $column) {

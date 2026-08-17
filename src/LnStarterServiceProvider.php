@@ -49,7 +49,13 @@ class LnStarterServiceProvider extends ServiceProvider
      */
     protected function registerSecurityObservability(): void
     {
-        $this->app->singleton(\LiveNetworks\LnStarter\Security\RequestContext::class);
+        // Scoped, not singleton: this holds mutable per-request state. Under
+        // Octane or a long-running queue worker a singleton would leak the
+        // correlation ID of one request into the next, or let a concurrent
+        // request overwrite it. Laravel flushes scoped instances between
+        // Octane requests and between queued jobs; on classic FPM `scoped`
+        // behaves exactly like `singleton`.
+        $this->app->scoped(\LiveNetworks\LnStarter\Security\RequestContext::class);
         $this->app->singleton(\LiveNetworks\LnStarter\Security\Pseudonymizer::class);
 
         $this->app->singleton(
@@ -60,7 +66,10 @@ class LnStarterServiceProvider extends ServiceProvider
         $this->app->singleton(\LiveNetworks\LnStarter\Security\SecurityEventDispatcher::class, function ($app) {
             $dispatcher = new \LiveNetworks\LnStarter\Security\SecurityEventDispatcher(
                 $app->make(\LiveNetworks\LnStarter\Security\ContextSanitizer::class),
-                $app->make(\LiveNetworks\LnStarter\Security\RequestContext::class),
+                // Resolved per call, never captured: the dispatcher is a
+                // singleton (it owns the sink registry) but must always read
+                // the *current* scoped correlation context.
+                fn () => $app->make(\LiveNetworks\LnStarter\Security\RequestContext::class),
             );
 
             $dispatcher->extend(new \LiveNetworks\LnStarter\Security\Sinks\LogSink());
