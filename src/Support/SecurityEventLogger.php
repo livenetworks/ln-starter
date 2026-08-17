@@ -2,6 +2,7 @@
 
 namespace LiveNetworks\LnStarter\Support;
 
+use Closure;
 use LiveNetworks\LnStarter\Security\Outcome;
 use LiveNetworks\LnStarter\Security\Pseudonymizer;
 use LiveNetworks\LnStarter\Security\ReasonCode;
@@ -22,11 +23,29 @@ use LiveNetworks\LnStarter\Security\Severity;
  */
 class SecurityEventLogger
 {
+    /** @var Closure(): RequestContext */
+    private readonly Closure $resolveContext;
+
+    /**
+     * @param RequestContext|(Closure(): RequestContext) $context
+     *        A closure keeps this singleton reading the *current* scoped
+     *        context. Capturing an instance would let a long-running runtime
+     *        hand out the previous request's correlation ID — and this class
+     *        is what the controller asks for the ID it passes to the queue.
+     */
     public function __construct(
         private readonly SecurityEventDispatcher $dispatcher,
         private readonly Pseudonymizer $pseudonymizer,
-        private readonly RequestContext $context,
+        RequestContext|Closure $context,
     ) {
+        $this->resolveContext = $context instanceof Closure
+            ? $context
+            : static fn (): RequestContext => $context;
+    }
+
+    private function context(): RequestContext
+    {
+        return ($this->resolveContext)();
     }
 
     /**
@@ -34,13 +53,12 @@ class SecurityEventLogger
      */
     public function requestId(): string
     {
-        return $this->context->requestId()
-            ?? $this->context->startRequest(null);
+        return $this->context()->ensureStarted();
     }
 
     public function correlationId(): ?string
     {
-        return $this->context->correlationId();
+        return $this->context()->correlationId();
     }
 
     /**

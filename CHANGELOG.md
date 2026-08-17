@@ -35,6 +35,9 @@ All notable changes to this project will be documented in this file.
 - Fail auth-v2 production readiness when the database cannot provide transactional row locking (SQLite, or a non-InnoDB `magic_login_attempts` table), since `lockForUpdate()` is silently a no-op there and single-use consumption would not be atomic
 
 ### Fixed
+- Audit the losing side of a concurrent proof consumption: a terminal attempt now stages `auth.magic.proof.replayed` with `proof_already_consumed`/`proof_revoked`, and a missing attempt stages `attempt_not_found`. Previously a race left only a success event, indistinguishable from an uncontested login
+- Resolve the scoped `RequestContext` per call in `SecurityEventLogger` as well as the dispatcher; the singleton logger captured one instance and could hand a stale correlation ID to the queue under Octane or a long-running worker
+- Name per-proof and per-confirmation-context throttles `rate_limited_proof` and `rate_limited_confirmation_context` instead of mislabelling them as session limits
 - Report a throttled magic-link open as `auth.magic.rate_limited`; it was previously reported as `auth.magic.proof.replayed` with `proof_expired`, putting a false reuse claim in the audit trail for a valid pending link
 - Emit reason-specific rate-limit events for code verification and link confirmation; only the initial email request was instrumented
 - Probe the storage engine on the connection the audit table actually lives on; a sink using a separate connection could pass readiness against the default database

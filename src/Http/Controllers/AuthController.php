@@ -500,7 +500,8 @@ class AuthController extends LNController
     private function linkOpenRateLimitReason(Request $request, string $linkHash): ?ReasonCode
     {
         return $this->limitedBy([
-            ['auth-link-proof:' . $linkHash, 10, ReasonCode::RateLimitedSession],
+            // Keyed on the proof itself, not on a session.
+            ['auth-link-proof:' . $linkHash, 10, ReasonCode::RateLimitedProof],
             ['auth-link-ip:' . $this->ipKey($request), 100, ReasonCode::RateLimitedIp],
         ], 900);
     }
@@ -508,7 +509,8 @@ class AuthController extends LNController
     private function linkConfirmationRateLimitReason(Request $request, string $context): ?ReasonCode
     {
         return $this->limitedBy([
-            ['auth-confirm-context:' . $this->proofs->rateKey('context', $context), 5, ReasonCode::RateLimitedSession],
+            // Keyed on the confirmation context, not on a session.
+            ['auth-confirm-context:' . $this->proofs->rateKey('context', $context), 5, ReasonCode::RateLimitedConfirmationContext],
             ['auth-confirm-session:' . $this->sessionKey($request), 5, ReasonCode::RateLimitedSession],
             ['auth-confirm-ip:' . $this->ipKey($request), 50, ReasonCode::RateLimitedIp],
         ], 900);

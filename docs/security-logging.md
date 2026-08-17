@@ -102,12 +102,27 @@ A closed set, never a raw exception message:
 `invalid_link_token` `requester_binding_mismatch` `proof_expired`
 `proof_already_consumed` `proof_revoked` `code_locked` `attempt_not_found`
 `confirmation_context_missing` `rate_limited_email` `rate_limited_ip`
-`rate_limited_session` `mail_transport_failure` `delivery_window_expired`
+`rate_limited_session` `rate_limited_proof` `rate_limited_confirmation_context`
+`mail_transport_failure` `delivery_window_expired`
 `no_active_session` `sibling_attempt_superseded` `pepper_unavailable`
 `configuration_invalid` `sink_failure` `unspecified`
 
 Reason codes are **internal**. They may distinguish "no such account" from
 "ineligible account" precisely because the public HTTP response never does.
+
+Throttle reasons name the dimension that actually tripped: `rate_limited_email`,
+`rate_limited_ip`, `rate_limited_session`, `rate_limited_proof` (one magic-link
+token being hammered), and `rate_limited_confirmation_context`. Every throttle
+key is an HMAC or a hash, so the dimension is reported without the identifier.
+
+Throttling is never reported as a replay. A rate-limited open of a valid,
+still-pending link emits `auth.magic.rate_limited` and leaves the attempt
+untouched.
+
+Under concurrent consumption the winner emits `auth.magic.proof.accepted` and
+every loser emits `auth.magic.proof.replayed` with `proof_already_consumed` or
+`proof_revoked`. A race that produced only a success event would be
+indistinguishable from an uncontested login.
 
 ## What is never logged
 

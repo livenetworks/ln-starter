@@ -317,18 +317,197 @@ class AuditIntegrityTest extends TestCase
         $this->assertNotSame($firstId, $event->requestId);
     }
 
-    public function test_pepper_unavailability_uses_the_documented_event_name(): void
+    /**
+     * The concurrent loser reaches the state machine through exactly this
+     * branch: it takes the row lock second and finds a terminal attempt. The
+     * forked race test proves it under real concurrency but cannot run
+     * everywhere, so the same code path is also covered sequentially.
+     */
+    public function test_a_terminal_attempt_is_audited_as_a_replay_not_silently_dropped(): void
     {
-        $this->app->make(SecurityEventLogger::class)->record(SecurityEventName::READINESS_FAILED, [
-            'outcome' => 'error',
-            'reason' => ReasonCode::PepperUnavailable->value,
-        ]);
+        IntegrityUser::create(['email' => 'person@example.test']);
+        $job = $this->requestAndProcess('person@example.test');
 
-        $event = $this->find(SecurityEventName::READINESS_FAILED);
+        $machine = $this->app->make(\LiveNetworks\LnStarter\Support\MagicLoginStateMachine::class);
 
-        $this->assertNotNull($event);
+        $this->assertNotNull($machine->consumeLink($job->attemptId));
+
+        $before = count($this->sink->events);
+
+        // Second consumption of a now-consumed attempt: this is the loser.
+        $this->assertNull($machine->consumeCode($job->attemptId, 'whatever', $job->code));
+
+        $emitted = array_slice($this->sink->events, $before);
+        $replay = null;
+        foreach ($emitted as $event) {
+            if ($event->eventName === SecurityEventName::PROOF_REPLAYED) {
+                $replay = $event;
+            }
+        }
+
+        $this->assertNotNull($replay, 'A losing consumption must not vanish from the audit trail.');
+        $this->assertSame(ReasonCode::ProofAlreadyConsumed, $replay->reasonCode);
+        $this->assertSame($job->attemptId, $replay->attemptId);
+        $this->assertSame(Outcome::Rejected, $replay->outcome);
+    }
+
+    public function test_a_revoked_attempt_is_audited_with_its_own_reason(): void
+    {
+        IntegrityUser::create(['email' => 'person@example.test']);
+        $job = $this->requestAndProcess('person@example.test');
+
+        DB::table('magic_login_attempts')
+            ->where('id', $job->attemptId)
+            ->update(['status' => 'revoked', 'revoked_at' => now()]);
+
+        $before = count($this->sink->events);
+
+        $this->assertNull(
+            $this->app->make(\LiveNetworks\LnStarter\Support\MagicLoginStateMachine::class)
+                ->consumeLink($job->attemptId)
+        );
+
+        $emitted = array_slice($this->sink->events, $before);
+        $reasons = array_map(fn (SecurityEvent $e) => $e->reasonCode, $emitted);
+
+        $this->assertContains(ReasonCode::ProofRevoked, $reasons);
+    }
+
+    public function test_a_missing_attempt_is_audited_as_not_found(): void
+    {
+        $before = count($this->sink->events);
+
+        $this->assertNull(
+            $this->app->make(\LiveNetworks\LnStarter\Support\MagicLoginStateMachine::class)
+                ->consumeLink('01JZZZZZZZZZZZZZZZZZZZZZZZ')
+        );
+
+        $emitted = array_slice($this->sink->events, $before);
+        $reasons = array_map(fn (SecurityEvent $e) => $e->reasonCode, $emitted);
+
+        $this->assertContains(ReasonCode::AttemptNotFound, $reasons);
+    }
+
+    public function test_proof_and_confirmation_throttles_do_not_claim_to_be_session_limits(): void
+    {
+        IntegrityUser::create(['email' => 'person@example.test']);
+        $job = $this->requestAndProcess('person@example.test');
+
+        for ($i = 0; $i < 12; $i++) {
+            $this->get('/auth/magic/' . $job->linkToken);
+        }
+
+        $throttle = $this->find(SecurityEventName::RATE_LIMITED);
+
+        $this->assertNotNull($throttle);
+        $this->assertSame(
+            ReasonCode::RateLimitedProof,
+            $throttle->reasonCode,
+            'A per-proof limit is not a session limit.'
+        );
+    }
+
+    /**
+     * Drives the real deep-readiness path rather than emitting the expected
+     * event by hand — the previous version of this test would have passed even
+     * if AuthV2Configuration went back to the old event name.
+     */
+    public function test_pepper_unavailability_emits_the_documented_event_from_real_readiness(): void
+    {
+        $user = IntegrityUser::create(['email' => 'rotation@example.test']);
+        $this->requestAndProcess('rotation@example.test');
+
+        // The attempt is pending and unexpired, but its pepper is gone.
+        DB::table('magic_login_attempts')->update(['pepper_id' => 'v-removed']);
+
+        $secretPepper = 'base64:' . base64_encode(str_repeat('Z', 32));
+        config()->set('ln-starter.auth.peppers.current', 'v1');
+        config()->set('ln-starter.auth.peppers.keys', ['v1' => $secretPepper]);
+
+        $before = count($this->sink->events);
+
+        try {
+            $this->app->make(\LiveNetworks\LnStarter\Support\AuthV2Configuration::class)->validate(true);
+            $this->fail('Readiness must fail when an active attempt references a missing pepper.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('pepper is unavailable', $exception->getMessage());
+            $this->assertStringNotContainsString($secretPepper, $exception->getMessage());
+            $this->assertStringNotContainsString('ZZZZ', $exception->getMessage());
+        }
+
+        $emitted = array_slice($this->sink->events, $before);
+        $names = array_map(fn (SecurityEvent $e) => $e->eventName, $emitted);
+
+        $this->assertContains(SecurityEventName::READINESS_FAILED, $names);
+        $this->assertNotContains('auth.magic.pepper.unavailable', $names);
+
+        $event = null;
+        foreach ($emitted as $candidate) {
+            if ($candidate->eventName === SecurityEventName::READINESS_FAILED) {
+                $event = $candidate;
+            }
+        }
+
         $this->assertSame(ReasonCode::PepperUnavailable, $event->reasonCode);
-        $this->assertNotContains('auth.magic.pepper.unavailable', $this->names());
+        $this->assertSame('v-removed', $event->context['pepper_id'] ?? null);
+
+        $serialized = json_encode(array_map(fn (SecurityEvent $e) => $e->toArray(), $emitted));
+        $this->assertStringNotContainsString($secretPepper, $serialized);
+        $this->assertStringNotContainsString('ZZZZ', $serialized);
+    }
+
+    /**
+     * The logger is a singleton but must never pin a scoped context: it is what
+     * AuthController asks for the correlation ID it hands to the queue.
+     */
+    public function test_a_previously_resolved_logger_follows_the_new_scope(): void
+    {
+        $logger = $this->app->make(SecurityEventLogger::class);
+
+        $first = $this->app->make(RequestContext::class);
+        $first->startRequest(null);
+        $firstId = $first->requestId();
+
+        $this->assertSame($firstId, $logger->requestId());
+
+        $this->app->forgetScopedInstances();
+
+        $second = $this->app->make(RequestContext::class);
+        $second->startRequest(null);
+
+        $this->assertNotSame($first, $second);
+        $this->assertNotSame($firstId, $second->requestId());
+
+        // Same logger object, new scope: it must not hand back the old ID.
+        $this->assertSame($second->requestId(), $logger->requestId());
+        $this->assertNotSame($firstId, $logger->requestId());
+        $this->assertSame($second->correlationId(), $logger->correlationId());
+    }
+
+    public function test_a_queued_job_receives_the_current_scope_correlation_id(): void
+    {
+        IntegrityUser::create(['email' => 'person@example.test']);
+
+        $logger = $this->app->make(SecurityEventLogger::class);
+        $this->app->make(RequestContext::class)->startRequest(null);
+        $staleId = $logger->requestId();
+
+        $this->app->forgetScopedInstances();
+
+        $this->post('/auth/magic-link', ['email' => 'person@example.test']);
+
+        $job = Queue::pushed(ProcessMagicLoginRequest::class)->last();
+
+        $this->assertInstanceOf(ProcessMagicLoginRequest::class, $job);
+        $this->assertNotSame(
+            $staleId,
+            $job->requestId,
+            'The queued job inherited a correlation ID from a dead scope.'
+        );
+
+        // And it matches what the request actually emitted.
+        $accepted = $this->find(SecurityEventName::REQUEST_ACCEPTED);
+        $this->assertSame($accepted->correlationId, $job->requestId);
     }
 }
 

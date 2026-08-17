@@ -204,7 +204,31 @@ class MagicLoginStateMachine
 
     private function isConsumable(?MagicLoginAttempt $attempt): bool
     {
-        if (!$attempt || !$attempt->isPending()) {
+        if (!$attempt) {
+            $this->stage(SecurityEventName::PROOF_REJECTED, [
+                'outcome' => 'rejected',
+                'reason' => ReasonCode::AttemptNotFound->value,
+            ]);
+
+            return false;
+        }
+
+        // The loser of a concurrent race lands here: it took the row lock
+        // second and found a terminal attempt. Returning silently dropped it
+        // from the audit trail entirely, so a race looked like a single
+        // uncontested login.
+        if (!$attempt->isPending()) {
+            $this->stage(SecurityEventName::PROOF_REPLAYED, [
+                'attempt_id' => $attempt->getKey(),
+                'user_id' => $attempt->user_id,
+                'outcome' => 'rejected',
+                'reason' => match ($attempt->status) {
+                    MagicLoginAttempt::STATUS_CONSUMED => ReasonCode::ProofAlreadyConsumed->value,
+                    MagicLoginAttempt::STATUS_REVOKED => ReasonCode::ProofRevoked->value,
+                    default => ReasonCode::ProofExpired->value,
+                },
+            ]);
+
             return false;
         }
 

@@ -419,6 +419,7 @@ class AuthV2FeatureTest extends TestCase
         $prefix = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'ln-starter-race-' . bin2hex(random_bytes(8));
         $gate = $prefix . '.start';
         $results = [$prefix . '.link', $prefix . '.code'];
+        $ready = [$prefix . '.ready.0', $prefix . '.ready.1'];
         $children = [];
 
         foreach (['link', 'code'] as $index => $method) {
@@ -431,12 +432,20 @@ class AuthV2FeatureTest extends TestCase
                 DB::purge();
                 DB::reconnect();
 
-                $deadline = microtime(true) + 5;
+                // Warm everything that would otherwise be lazily built inside
+                // the timed section, so the race is between the two locking
+                // transactions and not between two container boots.
+                $machine = app(MagicLoginStateMachine::class);
+                app(\LiveNetworks\LnStarter\Security\SecurityEventDispatcher::class);
+                DB::table(DatabaseSink::TABLE)->count();
+
+                file_put_contents($ready[$index], '1');
+
+                $deadline = microtime(true) + 10;
                 while (!file_exists($gate) && microtime(true) < $deadline) {
-                    usleep(1000);
+                    usleep(200);
                 }
 
-                $machine = app(MagicLoginStateMachine::class);
                 $winner = $method === 'link'
                     ? $machine->consumeLink($job->attemptId)
                     : $machine->consumeCode($job->attemptId, $nonce, $job->code);
@@ -447,6 +456,21 @@ class AuthV2FeatureTest extends TestCase
 
             $children[] = $pid;
         }
+
+        // Open the gate only once BOTH workers are connected and warm.
+        // Without this barrier the first child routinely finishes before the
+        // second one has a connection, and the test silently stops being a
+        // race at all.
+        $deadline = microtime(true) + 15;
+        while (microtime(true) < $deadline) {
+            if (file_exists($ready[0]) && file_exists($ready[1])) {
+                break;
+            }
+            usleep(500);
+        }
+
+        $this->assertFileExists($ready[0], 'Race worker 0 never became ready.');
+        $this->assertFileExists($ready[1], 'Race worker 1 never became ready.');
 
         file_put_contents($gate, 'go');
         foreach ($children as $pid) {
@@ -459,7 +483,7 @@ class AuthV2FeatureTest extends TestCase
             $results
         ));
 
-        foreach ([$gate, ...$results] as $path) {
+        foreach ([$gate, ...$results, ...$ready] as $path) {
             if (is_file($path)) {
                 unlink($path);
             }
@@ -481,7 +505,8 @@ class AuthV2FeatureTest extends TestCase
 
         $this->assertSame(1, $accepted, 'A concurrent race must record exactly one accepted proof.');
 
-        // The loser must be recorded, not silently dropped.
+        // The loser must be recorded, not silently dropped: a race that leaves
+        // only a success event is indistinguishable from an uncontested login.
         $rejections = DB::table(DatabaseSink::TABLE)
             ->where('attempt_id', $job->attemptId)
             ->whereIn('event_name', [
@@ -490,7 +515,21 @@ class AuthV2FeatureTest extends TestCase
             ])
             ->count();
 
-        $this->assertGreaterThanOrEqual(0, $rejections);
+        $this->assertGreaterThanOrEqual(
+            1,
+            $rejections,
+            'The losing side of the race must appear in the audit trail.'
+        );
+
+        // Both sides recorded against the same attempt, in the shared sink.
+        $this->assertSame(
+            1,
+            DB::table(DatabaseSink::TABLE)
+                ->where('attempt_id', $job->attemptId)
+                ->where('event_name', SecurityEventName::PROOF_ACCEPTED)
+                ->where('outcome', 'success')
+                ->count()
+        );
 
         Schema::dropIfExists(DatabaseSink::TABLE);
     }

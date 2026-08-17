@@ -31,10 +31,18 @@ enum ReasonCode: string
     case AttemptNotFound = 'attempt_not_found';
     case ConfirmationContextMissing = 'confirmation_context_missing';
 
-    // Throttling
+    // Throttling.
+    //
+    // The dimension matters: an operator responding to a flood needs to know
+    // whether one address is being targeted, one network is noisy, one browser
+    // session is looping, or a single proof/confirmation context is being
+    // hammered. Collapsing the last two into "session" reported the wrong
+    // cause, since neither is keyed on the session.
     case RateLimitedEmail = 'rate_limited_email';
     case RateLimitedIp = 'rate_limited_ip';
     case RateLimitedSession = 'rate_limited_session';
+    case RateLimitedProof = 'rate_limited_proof';
+    case RateLimitedConfirmationContext = 'rate_limited_confirmation_context';
 
     // Delivery
     case MailTransportFailure = 'mail_transport_failure';

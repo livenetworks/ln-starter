@@ -82,7 +82,19 @@ class LnStarterServiceProvider extends ServiceProvider
             return $dispatcher;
         });
 
-        $this->app->singleton(\LiveNetworks\LnStarter\Support\SecurityEventLogger::class);
+        $this->app->singleton(
+            \LiveNetworks\LnStarter\Support\SecurityEventLogger::class,
+            fn ($app) => new \LiveNetworks\LnStarter\Support\SecurityEventLogger(
+                $app->make(\LiveNetworks\LnStarter\Security\SecurityEventDispatcher::class),
+                $app->make(\LiveNetworks\LnStarter\Security\Pseudonymizer::class),
+                // Same reason as the dispatcher: never capture the scoped
+                // context. AuthController reads requestId() from here and hands
+                // it to the queue, so a stale instance would mis-correlate
+                // every delivery event under Octane.
+                fn () => $app->make(\LiveNetworks\LnStarter\Security\RequestContext::class),
+            )
+        );
+
         $this->app->singleton(\LiveNetworks\LnStarter\Support\SecurityObservabilityConfiguration::class);
     }
 
