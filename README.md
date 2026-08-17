@@ -232,7 +232,7 @@ $message = new Message(
 | `AuthenticateWithSanctum` | Validates bearer tokens from `Authorization` header |
 | `AuthorizationFromCookie` | Bridges `auth_token` cookie to `Authorization` header |
 | `DisableCsrf` | Marker middleware — marks routes for CSRF skip |
-| `VerifyCsrfToken` | Extended Laravel CSRF that respects `DisableCsrf` marker and skips for authenticated users |
+| `VerifyCsrfToken` | Extended Laravel CSRF that respects only the explicit `DisableCsrf` route marker |
 
 ### BusinessException
 

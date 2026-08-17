@@ -8,7 +8,7 @@ LN-Starter ships four middleware classes that handle authentication and CSRF man
 
 **Alias:** `sanctum.token`
 
-Validates bearer tokens from the `Authorization` header using Laravel Sanctum's `PersonalAccessToken` model.
+Validates bearer tokens by delegating to Laravel Sanctum's official `sanctum` guard. This preserves Sanctum's expiry and provider checks, `currentAccessToken()`, authentication events, and `last_used_at` tracking.
 
 ```php
 Route::middleware(['sanctum.token'])->group(function () {
@@ -32,9 +32,9 @@ Route::middleware(['sanctum.token:required'])->group(function () {
 
 ### How it works
 
-1. Extracts the bearer token from the `Authorization` header
-2. Looks up the token in Sanctum's `personal_access_tokens` table
-3. If valid and not revoked, sets the authenticated user on the request
+1. Resolves Laravel's `sanctum` guard
+2. Lets Sanctum parse and validate the bearer token
+3. If valid, makes Sanctum the active guard and sets the authenticated request user
 4. If no token or invalid:
    - **`sanctum.token`** — the request proceeds unauthenticated (no abort — combine with Laravel's `auth` middleware if you need to enforce)
    - **`sanctum.token:required`** — returns `{"message": "Unauthenticated."}` with HTTP 401
@@ -42,7 +42,7 @@ Route::middleware(['sanctum.token:required'])->group(function () {
 ### When to use
 
 - `sanctum.token` — API routes that accept optional Sanctum tokens
-- `sanctum.token:required` — API routes that must have a valid token (replaces the need to chain Laravel's `auth` middleware)
+- `sanctum.token:required` — backwards-compatible required mode; prefer Laravel's built-in `auth:sanctum` middleware for new routes
 - Combine with `cookie.auth` for hybrid cookie/token auth
 
 ## AuthorizationFromCookie
@@ -76,25 +76,24 @@ Marker middleware — does nothing itself. Its presence on a route signals `Veri
 
 ```php
 Route::middleware(['auth:sanctum', 'disable-csrf'])->group(function () {
-    // Token-authenticated routes without CSRF
+    // Authorization-header bearer-token routes without browser cookie auth
     Route::post('/api/members', [MemberController::class, 'store']);
 });
 ```
 
 ### When to use
 
-- API routes authenticated via bearer token (CSRF is unnecessary — the token IS the proof)
-- Webhook endpoints
+- API routes authenticated exclusively via an `Authorization` bearer token
+- Webhook endpoints that independently verify the provider signature
 - Any route where CSRF protection is handled by other means
+
+Do not apply `disable-csrf` to session-authenticated routes or routes that authenticate through an `auth_token` browser cookie. Those credentials are sent automatically by the browser and require CSRF protection.
 
 ## VerifyCsrfToken
 
 **No alias** — replaces Laravel's built-in CSRF middleware.
 
-Extends Laravel's `ValidateCsrfToken` with two additional skip conditions:
-
-1. **Authenticated users** — if `auth()->check()` is true, CSRF is skipped
-2. **Routes with `disable-csrf`** — if the route has the `DisableCsrf` middleware assigned
+Extends Laravel's `ValidateCsrfToken` with one explicit skip condition: routes carrying the `disable-csrf` middleware marker. Authentication by itself never disables CSRF protection.
 
 ### Registration
 
@@ -112,7 +111,7 @@ In your `bootstrap/app.php` or `Http/Kernel.php`, replace Laravel's default CSRF
 
 ### Design rationale
 
-Skipping CSRF for authenticated users is intentional: in this architecture, the same URL serves both form submissions (browser, with session) and API requests (token auth). Authenticated sessions already have a validated identity — double-checking CSRF adds friction without meaningful security for the dual-mode pattern.
+Authentication proves the user's identity; CSRF protection proves that a state-changing browser request originated from the application. Cookie and session authentication therefore remain protected. Only routes that do not rely on automatically submitted browser credentials should opt out explicitly.
 
 ## Middleware stack order
 
@@ -122,7 +121,7 @@ For routes that serve both browser and API:
 Route::middleware([
     'cookie.auth',       // 1. Bridge cookie → header
     'sanctum.token',     // 2. Validate token
-    // 3. VerifyCsrfToken runs in web group (skips if authenticated)
+    // 3. VerifyCsrfToken runs in web group; forms must submit a CSRF token
 ])->group(function () {
     Route::resource('members', MemberController::class);
 });

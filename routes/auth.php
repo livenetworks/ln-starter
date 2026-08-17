@@ -32,7 +32,7 @@ Route::get('/auth/magic/{token}', [AuthController::class, 'magicShow'])
 Route::post('/auth/magic/{token}', [AuthController::class, 'magicConsume'])
     ->name('auth.magic.consume');
 
-Route::middleware(['auth:sanctum', 'disable-csrf'])->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])
         ->name('logout');
 });

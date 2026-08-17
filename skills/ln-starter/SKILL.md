@@ -162,9 +162,10 @@ class AuditLog extends LNWriteModel
 
 ### 10. CSRF strategy
 
-- Authenticated users skip CSRF automatically (via `VerifyCsrfToken`)
-- API routes with token auth: add `disable-csrf` middleware
-- Public forms: CSRF works normally via `@csrf`
+- Session and cookie-authenticated forms remain CSRF-protected and must use `@csrf`
+- API routes authenticated exclusively by an `Authorization` bearer token may add `disable-csrf`
+- Signed webhooks may add `disable-csrf` after implementing provider-signature verification
+- Never add `disable-csrf` merely because a route is authenticated
 
 ## Middleware aliases
 

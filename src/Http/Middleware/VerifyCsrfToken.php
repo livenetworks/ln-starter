@@ -3,13 +3,14 @@
 namespace LiveNetworks\LnStarter\Http\Middleware;
 
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken as BaseValidateCsrfToken;
-use Laravel\Sanctum\PersonalAccessToken;
 
 /**
- * Extends Laravel's CSRF middleware with two additional skip conditions:
+ * Extends Laravel's CSRF middleware with an explicit route-level opt-out.
  *
- * 1. Authenticated users — via session OR bearer token (cookie/header)
- * 2. Routes with 'disable-csrf' middleware assigned
+ * Authentication is not a substitute for CSRF protection. Session and cookie
+ * authenticated requests must still prove that the request originated from
+ * the application. Only routes that explicitly carry the 'disable-csrf'
+ * marker are excluded (for example, bearer-token APIs or webhooks).
  *
  * Register by replacing Laravel's default in bootstrap/app.php:
  *
@@ -24,18 +25,6 @@ class VerifyCsrfToken extends BaseValidateCsrfToken
 {
     protected function inExceptArray($request): bool
     {
-        // Skip CSRF for authenticated users (session auth)
-        if (auth()->check()) {
-            return true;
-        }
-
-        // Skip CSRF when a valid bearer token is present (cookie.auth or header).
-        // This runs before Sanctum's auth middleware, so we check the token directly.
-        $bearer = $request->bearerToken();
-        if ($bearer && PersonalAccessToken::findToken($bearer)) {
-            return true;
-        }
-
         // Check if route has 'disable-csrf' middleware assigned
         $route = $request->route();
 

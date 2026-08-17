@@ -17,10 +17,22 @@
         "illuminate/mail": "^11.0|^12.0|^13.0",
         "laravel/sanctum": "^4.0"
     },
+    "require-dev": {
+        "orchestra/testbench": "^9.20|^10.11|^11.4",
+        "phpunit/phpunit": "^11.5.50"
+    },
     "autoload": {
         "psr-4": {
             "LiveNetworks\\LnStarter\\": "src/"
         }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "LiveNetworks\\LnStarter\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "@php vendor/bin/phpunit"
     },
     "extra": {
         "laravel": {

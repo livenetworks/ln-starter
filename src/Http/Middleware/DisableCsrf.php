@@ -14,8 +14,10 @@ use Illuminate\Http\Request;
  *
  * Usage:
  *   Route::middleware(['auth:sanctum', 'disable-csrf'])->group(function () {
- *       // Routes without CSRF protection
+ *       // Authorization-header bearer-token routes without cookie auth
  *   });
+ *
+ * Do not use this marker for session or cookie-authenticated browser routes.
  */
 class DisableCsrf
 {

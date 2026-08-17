@@ -33,7 +33,11 @@ class InstallCommand extends Command
             $this->components->info($step['label'] . ' published.');
         }
 
-        $this->publishUsersMigration();
+        if (!$this->publishUsersMigration()) {
+            $this->components->error('LN-Starter installation stopped because the users migration is ambiguous.');
+            return self::FAILURE;
+        }
+
         $this->publishUserModel();
         $this->injectViteEntry('resources/scss/auth.scss');
         $this->checkNpmDependencies(['sass', 'ln-acme']);
@@ -109,44 +113,73 @@ class InstallCommand extends Command
         $this->components->info('User model published (HasApiTokens + first_name/last_name).');
     }
 
-    protected function publishUsersMigration(): void
+    protected function publishUsersMigration(): bool
     {
         $migrationsPath = database_path('migrations');
         $stub           = __DIR__ . '/../../stubs/create_users_table.stub';
 
-        // Known Laravel default users migration filenames
-        $defaults = [
-            '0001_01_01_000000_create_users_table.php', // Laravel 11+
-            '2014_10_12_000000_create_users_table.php', // Laravel 10
-        ];
+        $result = $this->publishUsersMigrationFiles(
+            $migrationsPath,
+            $stub,
+            (bool) $this->option('force')
+        );
 
-        $target = null;
-
-        foreach ($defaults as $filename) {
-            $path = $migrationsPath . '/' . $filename;
-            if (file_exists($path)) {
-                $target = $path;
-                break;
+        if ($result['status'] === 'conflict') {
+            $this->components->error('Multiple users migrations found; none were changed:');
+            foreach ($result['files'] as $path) {
+                $this->line('  - ' . basename($path));
             }
+            $this->components->warn('Resolve the migration conflict manually and run the command again.');
+            return false;
         }
 
-        // Remove any previously published ln-starter users migration (different timestamp)
-        foreach (glob($migrationsPath . '/*_create_users_table.php') as $existing) {
-            if (!in_array(basename($existing), $defaults)) {
-                $this->components->warn('Removing old migration: ' . basename($existing));
-                unlink($existing);
+        if ($result['status'] === 'skipped') {
+            $this->components->warn(
+                'Users migration already exists and was left unchanged: ' . basename($result['target'])
+            );
+            $this->components->warn('Use --force only if you intentionally want to replace this file.');
+            return true;
+        }
+
+        $verb = $result['status'] === 'replaced' ? 'replaced' : 'published';
+        $this->components->info('Users migration ' . $verb . ': ' . basename($result['target']));
+
+        return true;
+    }
+
+    /**
+     * Publish the users migration without deleting or ambiguously replacing files.
+     *
+     * @return array{status: 'conflict'|'skipped'|'replaced'|'published', target?: string, files?: array<int, string>}
+     */
+    protected function publishUsersMigrationFiles(string $migrationsPath, string $stub, bool $force): array
+    {
+        $existing = glob($migrationsPath . '/*_create_users_table.php') ?: [];
+        sort($existing);
+
+        if (count($existing) > 1) {
+            return ['status' => 'conflict', 'files' => $existing];
+        }
+
+        if (count($existing) === 1) {
+            $target = $existing[0];
+
+            if (!$force) {
+                return ['status' => 'skipped', 'target' => $target];
             }
+
+            if (!copy($stub, $target)) {
+                throw new \RuntimeException('Failed to replace users migration: ' . $target);
+            }
+
+            return ['status' => 'replaced', 'target' => $target];
         }
 
-        if ($target) {
-            // Replace the default migration in-place (keeps original filename/sort order)
-            copy($stub, $target);
-            $this->components->info('Users migration replaced (Laravel default overwritten).');
-        } else {
-            // No default found — publish with a fixed well-known name
-            $dest = $migrationsPath . '/0001_01_01_000000_create_users_table.php';
-            copy($stub, $dest);
-            $this->components->info('Users migration published.');
+        $target = $migrationsPath . '/0001_01_01_000000_create_users_table.php';
+        if (!copy($stub, $target)) {
+            throw new \RuntimeException('Failed to publish users migration: ' . $target);
         }
+
+        return ['status' => 'published', 'target' => $target];
     }
 }

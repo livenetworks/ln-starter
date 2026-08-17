@@ -86,7 +86,7 @@ use Illuminate\Foundation\Configuration\Middleware;
         \LiveNetworks\LnStarter\Http\Middleware\AuthorizationFromCookie::class
     );
 
-    // 2. Replace Laravel CSRF with LN-Starter's (skips for authenticated users)
+    // 2. Replace Laravel CSRF with LN-Starter's route-aware implementation
     $middleware->web(replace: [
         \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class
             => \LiveNetworks\LnStarter\Http\Middleware\VerifyCsrfToken::class,
@@ -179,7 +179,7 @@ All routes are registered in the `web` middleware group.
 | GET | `/magic/status` | `magic.status` | web | Poll for token approval (JSON) |
 | GET | `/auth/magic/{token}` | `auth.magic.show` | web | Show confirmation page (read-only) |
 | POST | `/auth/magic/{token}` | `auth.magic.consume` | web | Consume token, authenticate, redirect |
-| POST | `/logout` | `logout` | web, auth:sanctum, disable-csrf | Revoke token, redirect |
+| POST | `/logout` | `logout` | web, auth:sanctum | Revoke token, redirect |
 
 ## Configuration Reference
 
@@ -245,7 +245,7 @@ The email subject is also translatable — set `auth.mail_subject` to the key, a
 - **Session tracking**: The wait page uses session to track which token belongs to which browser session
 - **Cookie auth bridge**: The `auth_token` cookie is unencrypted and non-httpOnly so the client JS can read it. The `AuthorizationFromCookie` middleware converts it to a `Authorization: Bearer` header for Sanctum
 - **No auto-registration**: The controller looks up the user by email. If the email does not belong to an existing user, the magic link is not sent. Users must be created through a separate registration flow
-- **CSRF**: The login form uses `@csrf`. The logout route uses `disable-csrf` middleware since it's protected by `auth:sanctum`
+- **CSRF**: Login, magic-link confirmation, and logout forms use normal CSRF protection. Authentication never disables CSRF automatically.
 
 ## Multilingual auth
 
