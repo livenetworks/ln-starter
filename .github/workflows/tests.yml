@@ -50,7 +50,7 @@ jobs:
       mysql:
         image: mysql:8.4
         env:
-          MYSQL_DATABASE: ln_starter
+          MYSQL_DATABASE: ln_starter_ci
           MYSQL_ROOT_PASSWORD: root
         ports:
           - 3306:3306
@@ -63,13 +63,13 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_DB: ln_starter
+          POSTGRES_DB: ln_starter_ci
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready --username=postgres --dbname=ln_starter"
+          --health-cmd="pg_isready --username=postgres --dbname=ln_starter_ci"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
@@ -78,7 +78,7 @@ jobs:
       DB_CONNECTION: ${{ matrix.database == 'sqlite' && 'testing' || matrix.database }}
       DB_HOST: 127.0.0.1
       DB_PORT: ${{ matrix.database == 'pgsql' && '5432' || '3306' }}
-      DB_DATABASE: ln_starter
+      DB_DATABASE: ln_starter_ci
       DB_USERNAME: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
       DB_PASSWORD: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
       # The suite drops all tables between test classes on server-backed
@@ -156,7 +156,7 @@ jobs:
       # Proves the published package is installable and free of local
       # artefacts, rather than only proving the working tree is.
       - name: Inspect the distributable artifact
-        run: php scripts/verify-artifact.php
+        run: php scripts/verify-artifact.php   # no --allow-offline: installability is a gate
 
   consumer:
     name: Consumer L${{ matrix.laravel }} install + upgrade

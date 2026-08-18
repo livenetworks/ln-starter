@@ -66,7 +66,7 @@ class ProductionDeploymentReadinessTest extends TestCase
 
         // The magic link inherits APP_URL, so http here means the proof itself
         // travels in the clear.
-        $this->assertRefuses('https APP_URL');
+        $this->assertRefuses('APP_URL to be an https URL');
     }
 
     public function test_an_empty_app_url_is_refused(): void
@@ -74,7 +74,7 @@ class ProductionDeploymentReadinessTest extends TestCase
         $this->baseline();
         config()->set('app.url', '');
 
-        $this->assertRefuses('https APP_URL');
+        $this->assertRefuses('APP_URL to be an https URL');
     }
 
     public function test_an_insecure_session_cookie_is_refused(): void
@@ -101,12 +101,41 @@ class ProductionDeploymentReadinessTest extends TestCase
         $this->assertRefuses('same_site');
     }
 
-    public function test_a_top_level_cookie_domain_is_refused(): void
+    /**
+     * Every leading-dot form, not just a bare apex. ".example.com" is the
+     * common mistake and previously passed.
+     */
+    public function test_any_wildcard_cookie_domain_is_refused(): void
+    {
+        foreach (['.example', '.example.com', '.app.example.com', ' .example.com'] as $domain) {
+            $this->baseline();
+            config()->set('session.domain', $domain);
+
+            $this->assertRefuses('wildcard session cookie domain');
+        }
+    }
+
+    public function test_an_exact_cookie_host_is_accepted(): void
     {
         $this->baseline();
-        config()->set('session.domain', '.example');
+        config()->set('session.domain', 'app.example.com');
 
-        $this->assertRefuses('top-level session cookie domain');
+        // Passes the cookie checks and stops at the database check instead.
+        $this->assertRefuses('transactional row locking');
+    }
+
+    /**
+     * A scheme with no host starts with "https://" but produces an unusable
+     * magic link, so a prefix check was not enough.
+     */
+    public function test_a_hostless_or_malformed_app_url_is_refused(): void
+    {
+        foreach (['https://', 'https:///path', 'not a url', '//example.com', 'https'] as $url) {
+            $this->baseline();
+            config()->set('app.url', $url);
+
+            $this->assertRefuses('APP_URL');
+        }
     }
 
     public function test_a_missing_queue_connection_is_refused(): void

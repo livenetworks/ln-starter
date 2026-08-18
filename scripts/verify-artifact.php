@@ -8,8 +8,12 @@
  * what Composer actually ships: `vendor/`, a stray `.env`, a local SQLite file,
  * or a log full of tokens would all pass the suite and still reach consumers.
  *
- * Usage: php scripts/verify-artifact.php
- * Exit code 0 = artifact is publishable.
+ * Usage: php scripts/verify-artifact.php [--allow-offline]
+ *
+ * Exit code 0 means the artifact is publishable, which includes having been
+ * installed from the archive. Without network access that cannot be proven, so
+ * the script FAILS rather than reporting a pass — unless --allow-offline is
+ * passed explicitly, which downgrades it to a clearly-labelled partial run.
  */
 
 declare(strict_types=1);
@@ -17,6 +21,9 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $failures = [];
 $notes = [];
+
+$options = getopt('', ['allow-offline']);
+$allowOffline = array_key_exists('allow-offline', $options);
 
 function out(string $line): void
 {
@@ -248,31 +255,87 @@ file_put_contents($installDir . DIRECTORY_SEPARATOR . 'composer.json', json_enco
     'require' => ['livenetworks/ln-starter' => '*'],
     'minimum-stability' => 'dev',
     'prefer-stable' => true,
+    'config' => ['allow-plugins' => false],
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-out('Resolving the artifact as a path repository…');
+out('Installing the artifact as a dependency…');
 
+// A real install, not --dry-run: only this exercises autoloading and Laravel
+// package discovery against the shipped files. A dry run resolves versions and
+// proves nothing about whether the archive actually works.
 exec(
-    $composer . ' update --dry-run --no-interaction --no-audit'
+    $composer . ' install --no-interaction --no-progress --prefer-dist'
     . ' --working-dir=' . escapeshellarg($installDir) . ' 2>&1',
     $installOutput,
     $installCode
 );
 
 $installLog = implode(PHP_EOL, $installOutput);
+$offline = str_contains($installLog, 'curl error')
+    || str_contains($installLog, 'could not be fully loaded')
+    || str_contains($installLog, 'network is disabled');
 
 if ($installCode !== 0) {
-    // Network-dependent: report honestly instead of claiming a pass.
-    if (str_contains($installLog, 'curl error') || str_contains($installLog, 'could not be fully loaded')) {
-        $notes[] = 'Install check SKIPPED: package metadata is unreachable from this machine.';
+    if ($offline && $allowOffline) {
+        $notes[] = 'Install check NOT RUN: package metadata is unreachable and --allow-offline was passed.';
+        $notes[] = 'This run does NOT qualify the artifact for release.';
+    } elseif ($offline) {
+        $failures[] = 'The artifact could not be installed because package metadata is unreachable. '
+            . 'Installability is a release gate; re-run with network access, or pass --allow-offline '
+            . 'to acknowledge an incomplete run.';
     } else {
-        $failures[] = 'The artifact could not be resolved as a dependency.';
+        $failures[] = 'The artifact could not be installed as a dependency.';
         $notes[] = trim($installLog);
     }
-} elseif (!str_contains($installLog, 'livenetworks/ln-starter')) {
-    $failures[] = 'Resolution succeeded but did not select livenetworks/ln-starter.';
 } else {
-    $notes[] = 'Install check PASSED: the artifact resolves as a dependency.';
+    $installedManifest = $installDir . '/vendor/livenetworks/ln-starter/composer.json';
+
+    if (!file_exists($installedManifest)) {
+        $failures[] = 'Install succeeded but the package is not present in vendor/.';
+    } else {
+        // Autoload and boot-level sanity: the shipped classes must be loadable
+        // from the installed artifact, not merely present in the archive.
+        $probe = <<<'PHP'
+<?php
+require __DIR__ . '/vendor/autoload.php';
+$classes = [
+    LiveNetworks\LnStarter\LnStarterServiceProvider::class,
+    LiveNetworks\LnStarter\Http\Controllers\AuthController::class,
+    LiveNetworks\LnStarter\Security\SecurityEventDispatcher::class,
+    LiveNetworks\LnStarter\Security\ContextSanitizer::class,
+    LiveNetworks\LnStarter\Contracts\SecurityAuditSink::class,
+];
+foreach ($classes as $class) {
+    if (!class_exists($class) && !interface_exists($class)) {
+        fwrite(STDERR, "missing: {$class}
+");
+        exit(1);
+    }
+}
+$config = require __DIR__ . '/vendor/livenetworks/ln-starter/config/ln-starter.php';
+if (!is_array($config) || !isset($config['auth'], $config['logging'])) {
+    fwrite(STDERR, "config did not load
+");
+    exit(1);
+}
+echo "autoload ok
+";
+PHP;
+
+        file_put_contents($installDir . '/probe.php', $probe);
+
+        exec(
+            escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($installDir . '/probe.php') . ' 2>&1',
+            $probeOutput,
+            $probeCode
+        );
+
+        if ($probeCode !== 0) {
+            $failures[] = 'The installed artifact does not autoload: ' . implode(' ', $probeOutput);
+        } else {
+            $notes[] = 'Install check PASSED: the artifact installs and autoloads from the archive.';
+        }
+    }
 }
 
 // ---------------------------------------------------------------- cleanup
@@ -307,5 +370,11 @@ if ($failures !== []) {
 }
 
 out('');
-out('Artifact verification passed.');
+
+if ($allowOffline) {
+    out('Artifact content checks passed — PARTIAL RUN, installability not proven.');
+    exit(0);
+}
+
+out('Artifact verification passed, including installation from the archive.');
 exit(0);

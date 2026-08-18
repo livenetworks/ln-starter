@@ -121,5 +121,7 @@ opt-in and allow-listed:
 LN_STARTER_ALLOW_TEST_DB_RESET=1 DB_CONNECTION=mysql DB_DATABASE=ln_starter_scratch vendor/bin/phpunit
 ```
 
-Without the variable, or with a database name that is not allow-listed, the
-suite refuses to run. See `docs/deployment.md`.
+The variable must be exactly `1`, and the database must be named
+`ln_starter_scratch` or `ln_starter_ci`. The generic name `ln_starter` is not
+accepted — it is too plausible as a real local database. Anything unrecognised
+refuses rather than guessing. See `docs/deployment.md`.

@@ -176,7 +176,9 @@ allow-listed, the suite refuses to run rather than guessing. See
 ```bash
 composer validate
 composer test
-composer verify-artifact
+composer verify-artifact          # fails unless it installs from the archive
+                                  # add --allow-offline only to acknowledge a
+                                  # partial run; it does not qualify a release
 php scripts/consumer-install.php --laravel=13
 php scripts/consumer-upgrade.php --laravel=13
 ```

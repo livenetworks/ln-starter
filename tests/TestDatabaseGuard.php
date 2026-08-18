@@ -22,17 +22,28 @@ final class TestDatabaseGuard
     public const OPT_IN = 'LN_STARTER_ALLOW_TEST_DB_RESET';
 
     /**
-     * A reset target must look unmistakably like a scratch database.
+     * A reset target must look unmistakably like a disposable scratch database.
+     *
+     * Deliberately narrow. `ln_starter` and `testing` were removed: they are
+     * plausible names for a developer's real local database, and being on this
+     * list is the only thing standing between such a database and
+     * dropAllTables().
      *
      * @var list<string>
      */
     private const ALLOWED_NAMES = [
-        'ln_starter',
-        'ln_starter_test',
-        'ln_starter_testing',
-        'ln_starter_scratch',
         'ln_starter_ci',
-        'testing',
+        'ln_starter_scratch',
+    ];
+
+    /**
+     * Connection names a reset may target. A custom connection pointing at
+     * production data must not qualify just because its database is named well.
+     *
+     * @var list<string>
+     */
+    private const ALLOWED_CONNECTIONS = [
+        'mysql', 'mariadb', 'pgsql', 'testing', 'sqlite',
     ];
 
     /**
@@ -61,13 +72,19 @@ final class TestDatabaseGuard
             return sprintf('APP_ENV is "%s", not "testing"', $environment);
         }
 
-        $optIn = getenv(self::OPT_IN);
-        if ($optIn === false || $optIn === '' || $optIn === '0') {
-            return self::OPT_IN . ' is not set';
+        // Exactly "1". Accepting any truthy-looking string would mean a typo,
+        // or a leftover "false"/"no", silently authorises an unrecoverable
+        // operation.
+        if (getenv(self::OPT_IN) !== '1') {
+            return self::OPT_IN . ' is not exactly "1"';
         }
 
         if (!is_string($connection) || trim($connection) === '') {
             return 'the connection name is empty or unknown';
+        }
+
+        if (!in_array(strtolower(trim($connection)), self::ALLOWED_CONNECTIONS, true)) {
+            return sprintf('connection "%s" is not in the allow-list', $connection);
         }
 
         if (!is_string($database) || trim($database) === '') {
@@ -112,7 +129,7 @@ final class TestDatabaseGuard
         throw new RuntimeException(
             'Refusing to drop all tables: ' . $reason . '. '
             . 'The suite resets server-backed test databases between test classes; point DB_DATABASE at a '
-            . 'scratch database and set ' . self::OPT_IN . '=1. See docs/testing.md.'
+            . 'scratch database and set ' . self::OPT_IN . '=1. See docs/deployment.md.'
         );
     }
 }

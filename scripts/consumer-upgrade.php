@@ -47,6 +47,15 @@ try {
         ));
     });
 
+    step('Bootstrap the skeleton before package discovery can run', function () use ($app): void {
+        // The historical fixture enables auth in config, so the provider will
+        // validate auth configuration the moment discovery runs during
+        // composer require. Every secret it needs must already exist.
+        bootstrapSkeleton($app);
+        assertContains((string) file_get_contents($app . '/.env'), 'APP_KEY=base64:', 'APP_KEY was not set');
+        assertContains((string) file_get_contents($app . '/.env'), 'LN_AUTH_PEPPER=', 'the auth pepper was not set');
+    });
+
     step('Simulate a historical installation', function () use ($app, $consumerMigrationMarker, $consumerViewMarker): void {
         // Two historical users migrations: the Laravel default plus one the
         // consumer wrote themselves.
@@ -69,19 +78,6 @@ try {
         composer('config minimum-stability dev', $app);
         composer('config prefer-stable true', $app);
         composer('require livenetworks/ln-starter:* --no-interaction', $app);
-    });
-
-    step('Configure the upgraded application', function () use ($app): void {
-        touch($app . '/database/database.sqlite');
-        writeEnv($app, [
-            'DB_CONNECTION' => 'sqlite',
-            'DB_DATABASE' => $app . '/database/database.sqlite',
-            'SESSION_DRIVER' => 'file',
-            'QUEUE_CONNECTION' => 'database',
-            'MAIL_MAILER' => 'log',
-            'LN_AUTH_PEPPER' => 'base64:' . base64_encode(random_bytes(32)),
-            'LN_SECURITY_PSEUDONYM_KEY' => 'base64:' . base64_encode(random_bytes(32)),
-        ]);
     });
 
     step('Recursive config merge keeps old published config usable', function () use ($app): void {
@@ -153,29 +149,76 @@ try {
         assertSame('ln_security_audit_events', $found, 'the audit table was not created after opting in');
     });
 
-    step('Legacy tombstones answer 410 without issuing credentials', function () use ($app): void {
+    step('Legacy tombstones answer exactly 410 without issuing credentials', function () use ($app): void {
         foreach (['/magic/wait', '/magic/status'] as $path) {
             $response = serveAndGet($app, $path);
 
-            assertTrue(
-                in_array($response['status'], [302, 410], true),
-                "{$path} returned {$response['status']}, expected 410 or a redirect"
-            );
+            // Exactly 410. A 302 would mean the route still resolves to
+            // something live, which is what the tombstone exists to prevent.
+            assertSame(410, $response['status'], "{$path} returned {$response['status']}, expected 410");
             assertNotContains($response['body'], 'token', "{$path} response mentions a token");
+            assertNotContains($response['body'], 'Bearer', "{$path} response mentions a bearer credential");
         }
     });
 
-    step('Legacy cleanup retains active rows', function () use ($app): void {
+    step('Legacy cleanup retains every fresh row and removes only aged ones', function () use ($app): void {
         artisan('magic-link-tokens:cleanup --hours=24', $app);
 
         $pdo = new PDO('sqlite:' . $app . '/database/database.sqlite');
-        $remaining = (int) $pdo->query('SELECT COUNT(*) FROM magic_link_tokens')->fetchColumn();
 
-        // The fresh pending row must survive; only aged terminal rows go.
-        assertTrue($remaining >= 1, 'cleanup deleted an active legacy token');
+        $survives = static function (string $token) use ($pdo): int {
+            $stmt = $pdo->prepare('SELECT COUNT(*) FROM magic_link_tokens WHERE token = ?');
+            $stmt->execute([$token]);
 
-        $pending = (int) $pdo->query("SELECT COUNT(*) FROM magic_link_tokens WHERE token = 'pending-token'")->fetchColumn();
-        assertSame(1, $pending, 'the fresh pending legacy token was deleted');
+            return (int) $stmt->fetchColumn();
+        };
+
+        assertSame(1, $survives('pending-token'), 'the fresh pending legacy token was deleted');
+
+        // Asserted explicitly: a regression that deleted every approved row
+        // would still leave the pending one and pass a count-only check.
+        assertSame(1, $survives('approved-token'), 'the fresh approved legacy token was deleted');
+
+        assertSame(0, $survives('expired-token'), 'the aged expired token should have been pruned');
+    });
+
+    step('Cutover invalidates pending v1 proofs only with --force', function () use ($app): void {
+        $pending = static function (string $app): int {
+            $pdo = new PDO('sqlite:' . $app . '/database/database.sqlite');
+
+            return (int) $pdo->query('SELECT COUNT(*) FROM magic_link_tokens WHERE approved = 0')->fetchColumn();
+        };
+
+        $before = $pending($app);
+        assertTrue($before > 0, 'the fixture should still hold a pending v1 proof');
+
+        try {
+            artisan('ln-starter:auth-v2-cutover', $app);
+        } catch (RuntimeException) {
+            // A non-zero exit is an acceptable refusal.
+        }
+
+        assertSame($before, $pending($app), 'cutover changed data without --force');
+
+        artisan('ln-starter:auth-v2-cutover --force', $app);
+
+        assertSame(0, $pending($app), 'cutover --force left pending v1 proofs usable');
+    });
+
+    step('The additive name migration adds columns without touching users data', function () use ($app): void {
+        $pdo = new PDO('sqlite:' . $app . '/database/database.sqlite');
+        $columns = [];
+
+        foreach ($pdo->query('PRAGMA table_info(users)') as $column) {
+            $columns[] = $column['name'];
+        }
+
+        foreach (['first_name', 'last_name'] as $expected) {
+            assertTrue(in_array($expected, $columns, true), "users.{$expected} was not added");
+        }
+
+        // Additive means additive: the original column must still be there.
+        assertTrue(in_array('email', $columns, true), 'the users table lost its email column');
     });
 
     step('Caches build on the upgraded application', function () use ($app): void {

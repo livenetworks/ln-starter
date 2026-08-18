@@ -203,6 +203,57 @@ function writeEnv(string $app, array $values): void
     file_put_contents($path, $env);
 }
 
+/**
+ * Bring a freshly created skeleton to a bootable state.
+ *
+ * MUST run before `composer require`. Requiring the package triggers package
+ * discovery, which boots the service provider, which validates configuration
+ * and needs APP_KEY (or an explicit pseudonym key) to exist. With
+ * --no-scripts there is no .env and no APP_KEY, so the very first require
+ * would fail before a single assertion ran.
+ *
+ * @param array<string, string> $extra
+ */
+function bootstrapSkeleton(string $app, array $extra = []): void
+{
+    if (!file_exists($app . '/.env') && file_exists($app . '/.env.example')) {
+        copy($app . '/.env.example', $app . '/.env');
+    }
+
+    if (!file_exists($app . '/.env')) {
+        file_put_contents($app . '/.env', "APP_NAME=Harness
+APP_ENV=local
+APP_DEBUG=true
+");
+    }
+
+    if (!is_dir($app . '/database')) {
+        mkdir($app . '/database', 0755, true);
+    }
+
+    $sqlite = $app . '/database/database.sqlite';
+    if (!file_exists($sqlite)) {
+        touch($sqlite);
+    }
+
+    writeEnv($app, array_merge([
+        'APP_ENV' => 'local',
+        'APP_DEBUG' => 'true',
+        'APP_URL' => 'http://localhost',
+        'DB_CONNECTION' => 'sqlite',
+        'DB_DATABASE' => $sqlite,
+        'SESSION_DRIVER' => 'file',
+        'QUEUE_CONNECTION' => 'database',
+        'MAIL_MAILER' => 'log',
+        // Both secrets exist before the provider can ever boot.
+        'LN_AUTH_PEPPER' => 'base64:' . base64_encode(random_bytes(32)),
+        'LN_SECURITY_PSEUDONYM_KEY' => 'base64:' . base64_encode(random_bytes(32)),
+    ], $extra));
+
+    // --no-scripts skips key:generate, so set APP_KEY directly.
+    writeEnv($app, ['APP_KEY' => 'base64:' . base64_encode(random_bytes(32))]);
+}
+
 /** @return array<string, string> filename => sha1 */
 function fileInventory(string $directory): array
 {

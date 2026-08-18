@@ -68,12 +68,20 @@ class AuthV2Configuration
      */
     private function validateTransportSecurity(): void
     {
-        $appUrl = (string) config('app.url');
+        $appUrl = trim((string) config('app.url'));
+        $parts = $appUrl === '' ? false : parse_url($appUrl);
 
-        if ($appUrl === '' || !str_starts_with(strtolower($appUrl), 'https://')) {
+        // Parsed rather than prefix-matched: "https://" alone starts with the
+        // right characters but has no host, and would still produce a link
+        // nobody can open.
+        $scheme = is_array($parts) ? strtolower((string) ($parts['scheme'] ?? '')) : '';
+        $host = is_array($parts) ? trim((string) ($parts['host'] ?? '')) : '';
+
+        if ($scheme !== 'https' || $host === '') {
             throw new RuntimeException(
-                'LN-Starter auth v2 requires an https APP_URL in production; magic links inherit it. '
-                . 'Behind a TLS-terminating proxy, configure TrustProxies so generated URLs are https.'
+                'LN-Starter auth v2 requires APP_URL to be an https URL with a host in production; '
+                . 'magic links inherit it. Behind a TLS-terminating proxy, configure TrustProxies '
+                . 'so generated URLs are https.'
             );
         }
     }
@@ -105,14 +113,19 @@ class AuthV2Configuration
             ));
         }
 
-        // A leading-dot/apex cookie domain widens the credential to every
-        // subdomain, including ones the application does not control.
+        // Any leading-dot domain shares the session cookie with every
+        // subdomain, including ones this application does not control. The
+        // previous check only caught a bare apex like ".example", which let
+        // ".example.com" through — the far more common mistake.
         $domain = config('session.domain');
 
-        if (is_string($domain) && str_starts_with($domain, '.') && substr_count($domain, '.') === 1) {
-            throw new RuntimeException(
-                'LN-Starter auth v2 refuses a top-level session cookie domain in production.'
-            );
+        if (is_string($domain) && str_starts_with(trim($domain), '.')) {
+            throw new RuntimeException(sprintf(
+                'LN-Starter auth v2 refuses a wildcard session cookie domain (%s) in production; '
+                . 'it shares the session credential with every subdomain. Set session.domain to the '
+                . 'exact host, or leave it null.',
+                $domain
+            ));
         }
     }
 

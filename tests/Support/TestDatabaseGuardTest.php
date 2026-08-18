@@ -60,17 +60,52 @@ class TestDatabaseGuardTest extends TestCase
 
         $this->assertStringContainsString(
             TestDatabaseGuard::OPT_IN,
-            (string) TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter')
+            (string) TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci')
         );
+    }
 
-        putenv(TestDatabaseGuard::OPT_IN . '=0');
+    /**
+     * Only the exact string "1" authorises the reset. Anything else — a typo,
+     * a leftover "false", a truthy-looking word — must refuse, because the
+     * operation it guards cannot be undone.
+     */
+    public function test_only_an_exact_one_authorises_the_reset(): void
+    {
+        foreach (['0', 'false', 'no', 'yes', 'true', 'on', '1 ', ' 1', '01', 'TRUE', ''] as $value) {
+            putenv(TestDatabaseGuard::OPT_IN . '=' . $value);
+
+            $this->assertNotNull(
+                TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci'),
+                "opt-in value " . var_export($value, true) . " must not authorise a reset"
+            );
+        }
+
+        putenv(TestDatabaseGuard::OPT_IN . '=1');
+        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci'));
+    }
+
+    public function test_an_unlisted_connection_is_refused(): void
+    {
+        $this->assertStringContainsString(
+            'not in the allow-list',
+            (string) TestDatabaseGuard::refusalReason('testing', 'reporting_replica', 'ln_starter_ci')
+        );
+    }
+
+    /**
+     * `ln_starter` is a plausible name for a developer's real local database,
+     * so it is no longer accepted.
+     */
+    public function test_the_generic_package_name_is_no_longer_allowed(): void
+    {
         $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'testing'));
     }
 
     public function test_an_unknown_connection_or_database_is_refused(): void
     {
-        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', null, 'ln_starter'));
-        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', '  ', 'ln_starter'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', null, 'ln_starter_ci'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', '  ', 'ln_starter_ci'));
         $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', null));
         $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', ''));
     }
@@ -111,13 +146,13 @@ class TestDatabaseGuardTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Refusing to drop all tables');
 
-        TestDatabaseGuard::assertResettable('production', 'mysql', 'ln_starter');
+        TestDatabaseGuard::assertResettable('production', 'mysql', 'ln_starter_ci');
     }
 
     public function test_the_ci_database_name_is_permitted(): void
     {
         // Matches DB_DATABASE in .github/workflows/tests.yml.
-        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter'));
-        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'pgsql', 'ln_starter'));
+        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci'));
+        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'pgsql', 'ln_starter_ci'));
     }
 }
