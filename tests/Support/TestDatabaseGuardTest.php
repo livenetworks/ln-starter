@@ -14,6 +14,7 @@ use RuntimeException;
 class TestDatabaseGuardTest extends TestCase
 {
     private string|false $originalOptIn = false;
+    private string|false $originalRemoteOptIn = false;
 
     protected function setUp(): void
     {
@@ -23,15 +24,22 @@ class TestDatabaseGuardTest extends TestCase
         // reset guard reads this variable, so leaking a cleared value would
         // make every later test class refuse to run.
         $this->originalOptIn = getenv(TestDatabaseGuard::OPT_IN);
+        $this->originalRemoteOptIn = getenv(TestDatabaseGuard::ALLOW_REMOTE);
+
         putenv(TestDatabaseGuard::OPT_IN . '=1');
+        putenv(TestDatabaseGuard::ALLOW_REMOTE);
     }
 
     protected function tearDown(): void
     {
-        if ($this->originalOptIn === false) {
-            putenv(TestDatabaseGuard::OPT_IN);
-        } else {
-            putenv(TestDatabaseGuard::OPT_IN . '=' . $this->originalOptIn);
+        // Restored, never blanked. On a lane where either variable is
+        // legitimately set, clearing it would make every later test class
+        // refuse to run; leaving one set would be worse.
+        foreach ([
+            [TestDatabaseGuard::OPT_IN, $this->originalOptIn],
+            [TestDatabaseGuard::ALLOW_REMOTE, $this->originalRemoteOptIn],
+        ] as [$name, $original]) {
+            $original === false ? putenv($name) : putenv($name . '=' . $original);
         }
 
         parent::tearDown();
@@ -40,7 +48,7 @@ class TestDatabaseGuardTest extends TestCase
     public function test_a_scratch_database_in_testing_with_opt_in_is_allowed(): void
     {
         $this->assertNull(
-            TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_scratch')
+            TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_scratch', '127.0.0.1')
         );
     }
 
@@ -49,7 +57,7 @@ class TestDatabaseGuardTest extends TestCase
         foreach (['production', 'local', 'staging', ''] as $env) {
             $this->assertStringContainsString(
                 'APP_ENV',
-                (string) TestDatabaseGuard::refusalReason($env, 'mysql', 'ln_starter')
+                (string) TestDatabaseGuard::refusalReason($env, 'mysql', 'ln_starter_ci', '127.0.0.1')
             );
         }
     }
@@ -60,7 +68,7 @@ class TestDatabaseGuardTest extends TestCase
 
         $this->assertStringContainsString(
             TestDatabaseGuard::OPT_IN,
-            (string) TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci')
+            (string) TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', '127.0.0.1')
         );
     }
 
@@ -75,20 +83,20 @@ class TestDatabaseGuardTest extends TestCase
             putenv(TestDatabaseGuard::OPT_IN . '=' . $value);
 
             $this->assertNotNull(
-                TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci'),
+                TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', '127.0.0.1'),
                 "opt-in value " . var_export($value, true) . " must not authorise a reset"
             );
         }
 
         putenv(TestDatabaseGuard::OPT_IN . '=1');
-        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci'));
+        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', '127.0.0.1'));
     }
 
     public function test_an_unlisted_connection_is_refused(): void
     {
         $this->assertStringContainsString(
             'not in the allow-list',
-            (string) TestDatabaseGuard::refusalReason('testing', 'reporting_replica', 'ln_starter_ci')
+            (string) TestDatabaseGuard::refusalReason('testing', 'reporting_replica', 'ln_starter_ci', '127.0.0.1')
         );
     }
 
@@ -98,16 +106,16 @@ class TestDatabaseGuardTest extends TestCase
      */
     public function test_the_generic_package_name_is_no_longer_allowed(): void
     {
-        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter'));
-        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'testing'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter', '127.0.0.1'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'testing', '127.0.0.1'));
     }
 
     public function test_an_unknown_connection_or_database_is_refused(): void
     {
-        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', null, 'ln_starter_ci'));
-        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', '  ', 'ln_starter_ci'));
-        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', null));
-        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', ''));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', null, 'ln_starter_ci', '127.0.0.1'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', '  ', 'ln_starter_ci', '127.0.0.1'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', null, '127.0.0.1'));
+        $this->assertNotNull(TestDatabaseGuard::refusalReason('testing', 'mysql', '', '127.0.0.1'));
     }
 
     /**
@@ -126,7 +134,7 @@ class TestDatabaseGuardTest extends TestCase
             'staging_db',
             'backup_2026',
         ] as $name) {
-            $reason = TestDatabaseGuard::refusalReason('testing', 'mysql', $name);
+            $reason = TestDatabaseGuard::refusalReason('testing', 'mysql', $name, '127.0.0.1');
 
             $this->assertNotNull($reason, "expected refusal for {$name}");
         }
@@ -137,7 +145,7 @@ class TestDatabaseGuardTest extends TestCase
         // Fail closed: unknown is not the same as safe.
         $this->assertStringContainsString(
             'allow-list',
-            (string) TestDatabaseGuard::refusalReason('testing', 'pgsql', 'scratch_db_17')
+            (string) TestDatabaseGuard::refusalReason('testing', 'pgsql', 'scratch_db_17', '127.0.0.1')
         );
     }
 
@@ -146,7 +154,7 @@ class TestDatabaseGuardTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Refusing to drop all tables');
 
-        TestDatabaseGuard::assertResettable('production', 'mysql', 'ln_starter_ci');
+        TestDatabaseGuard::assertResettable('production', 'mysql', 'ln_starter_ci', '127.0.0.1');
     }
 
     /**
@@ -164,12 +172,34 @@ class TestDatabaseGuardTest extends TestCase
         $this->assertNull(
             TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', 'db.internal.example')
         );
-        putenv(TestDatabaseGuard::ALLOW_REMOTE);
+    }
+
+    public function test_an_empty_or_unknown_host_is_refused(): void
+    {
+        foreach ([null, '', '   '] as $host) {
+            $this->assertStringContainsString(
+                'host is empty or unknown',
+                (string) TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', $host),
+                'an unknown host must not be treated as local'
+            );
+        }
+    }
+
+    /**
+     * From inside a container this resolves to the host machine, where a
+     * real database usually lives, so it is not loopback for this purpose.
+     */
+    public function test_the_docker_host_gateway_is_not_treated_as_loopback(): void
+    {
+        $this->assertStringContainsString(
+            'is not loopback',
+            (string) TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', 'host.docker.internal')
+        );
     }
 
     public function test_loopback_hosts_are_permitted_by_default(): void
     {
-        foreach (['127.0.0.1', 'localhost', '::1', ''] as $host) {
+        foreach (['127.0.0.1', 'localhost', '::1'] as $host) {
             $this->assertNull(
                 TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', $host),
                 "loopback host {$host} should be permitted"

@@ -42,6 +42,11 @@ All notable changes to this project will be documented in this file.
 - Fail auth-v2 production readiness when the database cannot provide transactional row locking (SQLite, or a non-InnoDB `magic_login_attempts` table), since `lockForUpdate()` is silently a no-op there and single-use consumption would not be atomic
 
 ### Fixed
+- Add a source-hygiene gate that rejects C0 control characters and invalid UTF-8 in tracked files, and parses the CI workflow. Two escape sequences had been written literally as bytes 0x01 and 0x02 — invisible to `php -l`, PHPUnit, and `git diff --check`, but enough to break a regex backreference and a workflow step
+- Hand the extracted artifact path to CI through a file instead of parsing it out of human-readable output
+- Refuse an empty or unknown database host in the test-reset guard instead of treating it as loopback, and stop counting `host.docker.internal` as local
+- Restore both test-reset opt-in variables in `tearDown` rather than clearing them, so a lane where either is legitimately set is not broken by this test class
+- Limit the illustrative-APP_KEY exemption in the artifact secret scanner to documentation; a weak-looking key in config or source is still reported
 - Audit the losing side of a concurrent proof consumption: a terminal attempt now stages `auth.magic.proof.replayed` with `proof_already_consumed`/`proof_revoked`, and a missing attempt stages `attempt_not_found`. Previously a race left only a success event, indistinguishable from an uncontested login
 - Resolve the scoped `RequestContext` per call in `SecurityEventLogger` as well as the dispatcher; the singleton logger captured one instance and could hand a stale correlation ID to the queue under Octane or a long-running worker
 - Name per-proof and per-confirmation-context throttles `rate_limited_proof` and `rate_limited_confirmation_context` instead of mislabelling them as session limits

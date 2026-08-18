@@ -192,7 +192,8 @@ jobs:
       # package boots as a Laravel package.
       - name: Fresh consumer installation (published artifact)
         run: |
-          EXTRACTED=$(php package/scripts/verify-artifact.php --keep-extracted             | sed -n 's|^  \(/.*\)$||p' | tail -1)
-          test -n "$EXTRACTED" || { echo "::error::no extracted artifact path"; exit 1; }
+          php package/scripts/verify-artifact.php --keep-extracted --output-path-file="$RUNNER_TEMP/artifact-path.txt"
+          EXTRACTED="$(cat "$RUNNER_TEMP/artifact-path.txt")"
+          test -d "$EXTRACTED" || { echo "::error::extracted artifact not found"; exit 1; }
           echo "Installing consumer from artifact at $EXTRACTED"
           php package/scripts/consumer-install.php --laravel=${{ matrix.laravel }} --package-path="$EXTRACTED"

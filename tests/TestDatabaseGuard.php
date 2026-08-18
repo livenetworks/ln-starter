@@ -51,10 +51,14 @@ final class TestDatabaseGuard
      * data. CI runs against 127.0.0.1, so loopback is the default and anything
      * else needs its own deliberate opt-in.
      *
+     * `host.docker.internal` is deliberately absent: from inside a container it
+     * resolves to the host machine, which is exactly where a developer's real
+     * database lives.
+     *
      * @var list<string>
      */
     private const LOOPBACK_HOSTS = [
-        '', '127.0.0.1', '::1', 'localhost', 'host.docker.internal',
+        '127.0.0.1', '::1', 'localhost',
     ];
 
     /** Separate opt-in for the rare case of a remote scratch database. */
@@ -82,7 +86,7 @@ final class TestDatabaseGuard
         string $environment,
         ?string $connection,
         ?string $database,
-        ?string $host = null,
+        ?string $host,
     ): ?string {
         if ($environment !== 'testing') {
             return sprintf('APP_ENV is "%s", not "testing"', $environment);
@@ -122,6 +126,13 @@ final class TestDatabaseGuard
 
         $server = strtolower(trim((string) $host));
 
+        // Fail closed: unknown is not the same as local. A socket-based
+        // connection reports no host, so it needs the same deliberate
+        // opt-in as a remote one rather than being waved through.
+        if ($server === '') {
+            return 'the database host is empty or unknown';
+        }
+
         if (!in_array($server, self::LOOPBACK_HOSTS, true) && getenv(self::ALLOW_REMOTE) !== '1') {
             return sprintf(
                 'host "%s" is not loopback; set %s=1 only if this really is a disposable remote database',
@@ -145,7 +156,7 @@ final class TestDatabaseGuard
         string $environment,
         ?string $connection,
         ?string $database,
-        ?string $host = null,
+        ?string $host,
     ): void {
         $reason = self::refusalReason($environment, $connection, $database, $host);
 

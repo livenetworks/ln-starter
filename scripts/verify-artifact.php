@@ -22,12 +22,16 @@ $root = dirname(__DIR__);
 $failures = [];
 $notes = [];
 
-$options = getopt('', ['allow-offline', 'keep-extracted']);
+$options = getopt('', ['allow-offline', 'keep-extracted', 'output-path-file:']);
 $allowOffline = array_key_exists('allow-offline', $options);
 
 // CI extracts once and hands the directory to the consumer harness, so that
 // package discovery is exercised against the published archive.
 $keepExtracted = array_key_exists('keep-extracted', $options);
+
+// Machine-readable handoff. Parsing a human-readable log for a path is how a
+// stray character in the log format silently becomes a broken CI step.
+$outputPathFile = $options['output-path-file'] ?? null;
 
 function out(string $line): void
 {
@@ -233,7 +237,7 @@ $isDocumentedPlaceholder = static function (string $match) use ($documentedPlace
 
     // An example key is allowed only when it is obviously not entropy: a
     // single repeated character, or an ellipsis.
-    if (preg_match('#^base64:(\.{3}|([A-Za-z0-9+/]){20,}={0,2})$#', $match)) {
+    if (preg_match('#^base64:(\.{3}|([A-Za-z0-9+/])\2{20,}={0,2})$#', $match)) {
         return true;
     }
 
@@ -255,9 +259,14 @@ for ($i = 0; $i < $zip->numFiles; $i++) {
         }
 
         foreach ($matches[0] as $match) {
-            // Only the APP_KEY pattern has a legitimate documented form; AWS
-            // keys, bearer tokens and private key blocks never do, in any file.
-            if ($label === 'APP_KEY value' && $isDocumentedPlaceholder($match)) {
+            // Only the APP_KEY pattern has a legitimate illustrative form, and
+            // only in documentation: a weak-looking key in config or source is
+            // still a leak. AWS keys, bearer tokens and private key blocks are
+            // never exempt, in any file.
+            $mayIllustrate = str_starts_with($name, 'docs/')
+                || in_array($name, ['UPGRADE.md', 'README.md'], true);
+
+            if ($label === 'APP_KEY value' && $mayIllustrate && $isDocumentedPlaceholder($match)) {
                 continue;
             }
 

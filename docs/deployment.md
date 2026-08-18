@@ -175,7 +175,8 @@ allow-listed, the suite refuses to run rather than guessing. See
 
 ```bash
 composer validate
-composer test
+composer test                     # includes the source-hygiene gate:
+                                  # no control characters in tracked files
 composer verify-artifact          # fails unless it installs from the archive
                                   # add --allow-offline only to acknowledge a
                                   # partial run; it does not qualify a release
