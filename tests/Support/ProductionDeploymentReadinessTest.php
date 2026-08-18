@@ -102,25 +102,48 @@ class ProductionDeploymentReadinessTest extends TestCase
     }
 
     /**
-     * Every leading-dot form, not just a bare apex. ".example.com" is the
-     * common mistake and previously passed.
+     * RFC 6265 ignores the leading dot, so `example.com` is exactly as wide as
+     * `.example.com`. The apex form without a dot is the one people actually
+     * write, and it previously passed this check.
      */
-    public function test_any_wildcard_cookie_domain_is_refused(): void
+    public function test_a_parent_domain_cookie_is_refused_with_or_without_a_leading_dot(): void
     {
-        foreach (['.example', '.example.com', '.app.example.com', ' .example.com'] as $domain) {
+        // baseline() sets APP_URL host to app.example.test
+        foreach ([
+            'example.com',
+            '.example.com',
+            'example.test',
+            '.example.test',
+            ' .example.test',
+            'sub.example.test',
+        ] as $domain) {
             $this->baseline();
             config()->set('session.domain', $domain);
 
-            $this->assertRefuses('wildcard session cookie domain');
+            $this->assertRefuses('refuses session.domain');
         }
     }
 
-    public function test_an_exact_cookie_host_is_accepted(): void
+    /**
+     * An explicit domain is tolerated only when it is exactly the APP_URL host,
+     * so a deliberate setting cannot silently widen the cookie upward.
+     */
+    public function test_only_a_domain_matching_the_app_url_host_is_tolerated(): void
+    {
+        foreach (['app.example.test', '.app.example.test', 'APP.example.test'] as $domain) {
+            $this->baseline();
+            config()->set('session.domain', $domain);
+
+            // Passes the cookie checks and stops at the database check instead.
+            $this->assertRefuses('transactional row locking');
+        }
+    }
+
+    public function test_a_host_only_cookie_is_the_safe_default(): void
     {
         $this->baseline();
-        config()->set('session.domain', 'app.example.com');
+        config()->set('session.domain', null);
 
-        // Passes the cookie checks and stops at the database check instead.
         $this->assertRefuses('transactional row locking');
     }
 

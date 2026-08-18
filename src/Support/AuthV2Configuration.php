@@ -113,18 +113,42 @@ class AuthV2Configuration
             ));
         }
 
-        // Any leading-dot domain shares the session cookie with every
-        // subdomain, including ones this application does not control. The
-        // previous check only caught a bare apex like ".example", which let
-        // ".example.com" through — the far more common mistake.
+        $this->validateSessionCookieDomain();
+    }
+
+    /**
+     * A `Domain` attribute of any form makes the session cookie a *domain*
+     * cookie: RFC 6265 says the leading dot is ignored, so `example.com` and
+     * `.example.com` behave identically and both send the session credential
+     * to every subdomain — including ones this application does not control.
+     * Checking only for a leading dot therefore missed the more common form.
+     *
+     * Host-only (null) is the safe default. An explicit value is accepted only
+     * when it exactly matches the APP_URL host, so a deliberate configuration
+     * still cannot silently widen the cookie to a parent domain.
+     */
+    private function validateSessionCookieDomain(): void
+    {
         $domain = config('session.domain');
 
-        if (is_string($domain) && str_starts_with(trim($domain), '.')) {
+        if ($domain === null || $domain === '') {
+            return;
+        }
+
+        if (!is_string($domain)) {
+            throw new RuntimeException('LN-Starter auth v2 requires session.domain to be a string or null.');
+        }
+
+        $normalized = strtolower(ltrim(trim($domain), '.'));
+        $host = strtolower((string) (parse_url((string) config('app.url'), PHP_URL_HOST) ?: ''));
+
+        if ($normalized === '' || $host === '' || $normalized !== $host) {
             throw new RuntimeException(sprintf(
-                'LN-Starter auth v2 refuses a wildcard session cookie domain (%s) in production; '
-                . 'it shares the session credential with every subdomain. Set session.domain to the '
-                . 'exact host, or leave it null.',
-                $domain
+                'LN-Starter auth v2 refuses session.domain=%s in production: a Domain attribute shares the '
+                . 'session credential with every subdomain, and this value does not even match the APP_URL '
+                . 'host (%s). Leave session.domain null for a host-only cookie.',
+                var_export($domain, true),
+                $host === '' ? 'unset' : $host
             ));
         }
     }

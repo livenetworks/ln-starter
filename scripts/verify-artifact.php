@@ -22,8 +22,12 @@ $root = dirname(__DIR__);
 $failures = [];
 $notes = [];
 
-$options = getopt('', ['allow-offline']);
+$options = getopt('', ['allow-offline', 'keep-extracted']);
 $allowOffline = array_key_exists('allow-offline', $options);
+
+// CI extracts once and hands the directory to the consumer harness, so that
+// package discovery is exercised against the published archive.
+$keepExtracted = array_key_exists('keep-extracted', $options);
 
 function out(string $line): void
 {
@@ -208,6 +212,34 @@ $secretPatterns = [
     'bearer token literal' => '#\bBearer\s+[A-Za-z0-9._~+/-]{24,}#',
 ];
 
+/**
+ * Documentation legitimately shows the *shape* of an APP_KEY-style value. That
+ * is the only exemption: a real AWS key, bearer token, or private key block in
+ * docs/ would still be shipped, so the previous blanket skip for anything under
+ * docs/ was too wide.
+ */
+$documentedPlaceholders = [
+    'base64:...',
+    'base64:<32-random-bytes>',
+    'base64:' . str_repeat('.', 3),
+];
+
+$isDocumentedPlaceholder = static function (string $match) use ($documentedPlaceholders): bool {
+    foreach ($documentedPlaceholders as $placeholder) {
+        if ($match === $placeholder) {
+            return true;
+        }
+    }
+
+    // An example key is allowed only when it is obviously not entropy: a
+    // single repeated character, or an ellipsis.
+    if (preg_match('#^base64:(\.{3}|([A-Za-z0-9+/]){20,}={0,2})$#', $match)) {
+        return true;
+    }
+
+    return false;
+};
+
 for ($i = 0; $i < $zip->numFiles; $i++) {
     $name = $zip->getNameIndex($i);
 
@@ -218,13 +250,19 @@ for ($i = 0; $i < $zip->numFiles; $i++) {
     $contents = (string) $zip->getFromIndex($i);
 
     foreach ($secretPatterns as $label => $pattern) {
-        if (preg_match($pattern, $contents)) {
-            // The docs legitimately show the *shape* of a key in an example.
-            if (str_contains($name, 'docs/') || str_contains($name, 'UPGRADE.md')) {
+        if (!preg_match_all($pattern, $contents, $matches)) {
+            continue;
+        }
+
+        foreach ($matches[0] as $match) {
+            // Only the APP_KEY pattern has a legitimate documented form; AWS
+            // keys, bearer tokens and private key blocks never do, in any file.
+            if ($label === 'APP_KEY value' && $isDocumentedPlaceholder($match)) {
                 continue;
             }
 
             $failures[] = "Possible {$label} in shipped file {$name}";
+            break;
         }
     }
 }
@@ -334,11 +372,38 @@ PHP;
             $failures[] = 'The installed artifact does not autoload: ' . implode(' ', $probeOutput);
         } else {
             $notes[] = 'Install check PASSED: the artifact installs and autoloads from the archive.';
+
+            // Autoloading is not package discovery. A minimal Composer project
+            // has no artisan and no post-autoload-dump hook, so the provider is
+            // never booted as a Laravel package here. That is proven by the
+            // consumer harness, which this script hands the extracted archive.
+            $notes[] = 'Package discovery is NOT exercised here; run:';
+            $notes[] = '  php scripts/consumer-install.php --laravel=13 --package-path=' . $packageRoot;
         }
     }
 }
 
 // ---------------------------------------------------------------- cleanup
+if ($keepExtracted) {
+    out('');
+    out('Extracted artifact kept for the consumer harness:');
+    out('  ' . $packageRoot);
+    out('');
+
+    foreach ($notes as $note) {
+        out('  note: ' . $note);
+    }
+
+    if ($failures !== []) {
+        foreach ($failures as $failure) {
+            fwrite(STDERR, '  FAIL: ' . $failure . PHP_EOL);
+        }
+        exit(1);
+    }
+
+    exit(0);
+}
+
 $removed = 0;
 $iterator = new RecursiveIteratorIterator(
     new RecursiveDirectoryIterator($workdir, FilesystemIterator::SKIP_DOTS),

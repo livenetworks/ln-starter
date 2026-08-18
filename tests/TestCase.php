@@ -35,6 +35,7 @@ abstract class TestCase extends Orchestra
                 (string) $this->app['env'],
                 $connection->getName(),
                 $connection->getDatabaseName(),
+                (string) $connection->getConfig('host'),
             );
 
             Schema::dropAllTables();

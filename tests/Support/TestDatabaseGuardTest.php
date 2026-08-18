@@ -149,10 +149,38 @@ class TestDatabaseGuardTest extends TestCase
         TestDatabaseGuard::assertResettable('production', 'mysql', 'ln_starter_ci');
     }
 
+    /**
+     * A correctly named database on a remote server is still someone's real
+     * data, so loopback is required unless a second opt-in says otherwise.
+     */
+    public function test_a_remote_host_is_refused_without_its_own_opt_in(): void
+    {
+        $this->assertStringContainsString(
+            'is not loopback',
+            (string) TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', 'db.internal.example')
+        );
+
+        putenv(TestDatabaseGuard::ALLOW_REMOTE . '=1');
+        $this->assertNull(
+            TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', 'db.internal.example')
+        );
+        putenv(TestDatabaseGuard::ALLOW_REMOTE);
+    }
+
+    public function test_loopback_hosts_are_permitted_by_default(): void
+    {
+        foreach (['127.0.0.1', 'localhost', '::1', ''] as $host) {
+            $this->assertNull(
+                TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', $host),
+                "loopback host {$host} should be permitted"
+            );
+        }
+    }
+
     public function test_the_ci_database_name_is_permitted(): void
     {
         // Matches DB_DATABASE in .github/workflows/tests.yml.
-        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci'));
-        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'pgsql', 'ln_starter_ci'));
+        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'mysql', 'ln_starter_ci', '127.0.0.1'));
+        $this->assertNull(TestDatabaseGuard::refusalReason('testing', 'pgsql', 'ln_starter_ci', '127.0.0.1'));
     }
 }

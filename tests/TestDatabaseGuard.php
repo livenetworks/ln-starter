@@ -47,6 +47,20 @@ final class TestDatabaseGuard
     ];
 
     /**
+     * A correctly named database on a *remote* server is still someone's real
+     * data. CI runs against 127.0.0.1, so loopback is the default and anything
+     * else needs its own deliberate opt-in.
+     *
+     * @var list<string>
+     */
+    private const LOOPBACK_HOSTS = [
+        '', '127.0.0.1', '::1', 'localhost', 'host.docker.internal',
+    ];
+
+    /** Separate opt-in for the rare case of a remote scratch database. */
+    public const ALLOW_REMOTE = 'LN_STARTER_ALLOW_REMOTE_TEST_DB_RESET';
+
+    /**
      * Names that are refused outright even with the opt-in set. A typo in CI
      * config must not be able to reach one of these.
      *
@@ -61,12 +75,14 @@ final class TestDatabaseGuard
      * @param string $environment app.env
      * @param string|null $connection Active connection name.
      * @param string|null $database Database name on that connection.
+     * @param string|null $host Server host for the connection.
      * @return string|null Null when the reset may proceed, otherwise the reason to refuse.
      */
     public static function refusalReason(
         string $environment,
         ?string $connection,
         ?string $database,
+        ?string $host = null,
     ): ?string {
         if ($environment !== 'testing') {
             return sprintf('APP_ENV is "%s", not "testing"', $environment);
@@ -104,6 +120,16 @@ final class TestDatabaseGuard
             }
         }
 
+        $server = strtolower(trim((string) $host));
+
+        if (!in_array($server, self::LOOPBACK_HOSTS, true) && getenv(self::ALLOW_REMOTE) !== '1') {
+            return sprintf(
+                'host "%s" is not loopback; set %s=1 only if this really is a disposable remote database',
+                $host,
+                self::ALLOW_REMOTE
+            );
+        }
+
         if (!in_array($name, self::ALLOWED_NAMES, true)) {
             return sprintf(
                 'database name "%s" is not in the allow-list (%s)',
@@ -119,8 +145,9 @@ final class TestDatabaseGuard
         string $environment,
         ?string $connection,
         ?string $database,
+        ?string $host = null,
     ): void {
-        $reason = self::refusalReason($environment, $connection, $database);
+        $reason = self::refusalReason($environment, $connection, $database, $host);
 
         if ($reason === null) {
             return;

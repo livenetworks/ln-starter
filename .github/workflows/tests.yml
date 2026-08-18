@@ -181,8 +181,18 @@ jobs:
           extensions: mbstring, pdo_sqlite
           coverage: none
 
-      - name: Fresh consumer installation
+      - name: Fresh consumer installation (working tree)
         run: php package/scripts/consumer-install.php --laravel=${{ matrix.laravel }}
 
       - name: Upgrade from a simulated auth v1 installation
         run: php package/scripts/consumer-upgrade.php --laravel=${{ matrix.laravel }}
+
+      # Autoloading from the archive is not package discovery. Installing the
+      # extracted artifact into a real skeleton is what proves the published
+      # package boots as a Laravel package.
+      - name: Fresh consumer installation (published artifact)
+        run: |
+          EXTRACTED=$(php package/scripts/verify-artifact.php --keep-extracted             | sed -n 's|^  \(/.*\)$||p' | tail -1)
+          test -n "$EXTRACTED" || { echo "::error::no extracted artifact path"; exit 1; }
+          echo "Installing consumer from artifact at $EXTRACTED"
+          php package/scripts/consumer-install.php --laravel=${{ matrix.laravel }} --package-path="$EXTRACTED"

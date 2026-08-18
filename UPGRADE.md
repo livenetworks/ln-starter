@@ -104,7 +104,7 @@ Each of these was previously unchecked:
 | `SESSION_SECURE_COOKIE=true` | After login the session cookie *is* the credential |
 | Session cookie is http-only | Keeps it out of reach of page scripts |
 | `session.same_site` is `lax` or `strict` | `none` sends the credential cross-site |
-| No apex session cookie domain | A `.example` domain shares the credential with every subdomain |
+| `session.domain` unset, or exactly the `APP_URL` host | RFC 6265 ignores the leading dot, so `example.com` is as wide as `.example.com`: any `Domain` attribute sends the session credential to every subdomain |
 | Configured, non-`sync` queue connection | Delivery is queued; a missing worker fails logins silently |
 | Configured mailer | Same reason |
 | Transactional row locking | SQLite and MyISAM break single-use consumption with no error |

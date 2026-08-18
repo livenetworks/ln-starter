@@ -19,15 +19,21 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/harness.php';
 
-$options = getopt('', ['laravel:', 'keep']);
+$options = getopt('', ['laravel:', 'keep', 'package-path:']);
 $laravel = $options['laravel'] ?? '13';
 $keep = array_key_exists('keep', $options);
+$packageOverride = $options['package-path'] ?? null;
 
 if (!in_array($laravel, ['12', '13'], true)) {
     fail("Unsupported Laravel lane: {$laravel}.");
 }
 
-$package = dirname(__DIR__);
+$package = $packageOverride !== null ? realpath($packageOverride) : dirname(__DIR__);
+
+if ($package === false || !is_file($package . '/composer.json')) {
+    fail('No package composer.json at ' . var_export($packageOverride, true));
+}
+
 $workspace = makeWorkspace('ln-starter-upgrade');
 $app = $workspace . '/app';
 
