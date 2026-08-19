@@ -332,7 +332,11 @@ if ($artifactOk) {
             $failures[] = 'Unable to compute a SHA-256 for ' . $archivePath;
         } else {
             $checksumPath = $archivePath . '.sha256';
-            $line = $checksum . '  ' . basename($archivePath) . PHP_EOL;
+            // LF, not PHP_EOL. This file ships with the release and is
+            // verified with `sha256sum -c`, which treats a trailing CR as
+            // part of the filename; a checksum generated on Windows would be
+            // unusable for everyone who downloads it.
+            $line = $checksum . '  ' . basename($archivePath) . chr(10);
 
             if (file_put_contents($checksumPath, $line, LOCK_EX) === false) {
                 $failures[] = 'Unable to write ' . $checksumPath;
