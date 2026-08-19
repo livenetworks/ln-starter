@@ -16,8 +16,7 @@ The repository reaches this ADR in a specific state, and the policy below is
 written for it rather than in the abstract:
 
 - The last tag is `v1.2.1` (2026-06-02). It is an ancestor of the current head.
-- 34 commits separate `v1.2.1` from the current head, including a complete
-  replacement of the auth flow.
+- The work since `v1.2.1` includes a complete replacement of the auth flow.
 - Tag naming is already inconsistent: the first release is tagged `1.0.0`, every
   later one `v1.1.0` … `v1.2.1`.
 - `CHANGELOG.md` opens with a `[0.1.0] — 2026-03-14` section that corresponds to
@@ -130,9 +129,13 @@ no step may run on a different artifact than the one before it.
    tagged. `scripts/release-check.php` passes.
 2. **Branch qualification.** A complete green CI run: every test matrix lane,
    the artifact job, and both consumer jobs.
-3. **Release finalisation commit.** The candidate banner comes off the release
-   notes and both documents gain the release date. This is its own commit, and
-   it is the commit that will be tagged.
+3. **Release finalisation commit.** Three documents are finalised together and
+   must agree: `docs/releases/X.Y.Z.md` gains a dated `# LN-Starter X.Y.Z —
+   YYYY-MM-DD` heading and loses its candidate banner, `CHANGELOG.md` gains
+   `## [X.Y.Z] — YYYY-MM-DD`, and `UPGRADE.md` gains `## X.Y.Z — YYYY-MM-DD`
+   with no candidate marker and no `Unreleased` section left covering changes
+   this release ships. One release, one date, checked across all three. This
+   is its own commit, and it is the commit that will be tagged.
 4. **Qualification of the finalised commit.** A second complete green CI run,
    on that exact commit. Step 2 qualified different content.
 5. **Pre-tag preflight.** `scripts/release-check.php --version=vX.Y.Z

@@ -378,6 +378,69 @@ class ReleaseWorkflowTest extends TestCase
         $this->assertStringContainsString('is not finalised', $final['output']);
     }
 
+    /**
+     * Finalisation covers every document a consumer reads, and one release has
+     * one date. Dropping the candidate wording alone must not be enough: undated
+     * notes, an "Unreleased" section in UPGRADE.md that actually ships in this
+     * release, or three documents disagreeing about the date are all the same
+     * class of defect.
+     */
+    public function test_finalisation_covers_all_three_documents(): void
+    {
+        $result = $this->releaseCheck(['--version=v2.0.0', '--allow-dirty', '--require-final']);
+
+        $this->assertSame(1, $result['code']);
+
+        foreach ([
+            'Release notes are finalised',
+            'Changelog section is finalised',
+            'Upgrade notes are finalised',
+        ] as $check) {
+            $this->assertStringContainsString($check, $result['output'], "{$check} must be part of finalisation");
+        }
+
+        // Specifically the date, not just the candidate wording.
+        $this->assertStringContainsString('has no dated heading', $result['output']);
+    }
+
+    public function test_the_preflight_rejects_an_impossible_or_disagreeing_date(): void
+    {
+        $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');
+
+        $this->assertStringContainsString('checkdate(', $preflight, 'a date must be a real calendar date');
+        $this->assertStringContainsString(
+            'The release notes are dated %s but the changelog says %s.',
+            $preflight,
+            'the documents must be checked against each other, not only individually'
+        );
+        $this->assertStringContainsString(
+            'disagrees with the changelog',
+            $preflight,
+            'UPGRADE.md must agree with the changelog date too'
+        );
+    }
+
+    /**
+     * An "Unreleased" heading in UPGRADE.md covering changes that ship in this
+     * release is a candidate marker by another name.
+     */
+    public function test_an_unreleased_section_blocks_finalisation(): void
+    {
+        $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');
+
+        $this->assertStringContainsString(
+            'Unreleased/mi',
+            $preflight,
+            'UPGRADE.md must not keep an Unreleased section at finalisation'
+        );
+
+        $this->assertStringContainsString(
+            'fold those changes into the release',
+            $preflight,
+            'the refusal must say what to do about it'
+        );
+    }
+
     public function test_a_tag_implies_finalisation_without_the_flag(): void
     {
         $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');

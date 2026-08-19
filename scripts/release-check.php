@@ -170,16 +170,42 @@ if (!$notesOk) {
         $plain
     );
 }
+$notesDate = null;
+$changelogDate = null;
 
 // A tag means this is no longer a candidate. Release notes that still say so
-// would be published verbatim on the GitHub Release.
+// would be published verbatim on the GitHub Release, and notes with no date
+// are not finalised either — ADR 0004 requires one.
 if ($requireFinal && $notesOk) {
     step('Release notes are finalised');
-    $notesBody = strtolower((string) file_get_contents($notesPath));
-    $stillCandidate = str_contains($notesBody, 'release candidate')
-        || str_contains($notesBody, 'not tagged')
-        || str_contains($notesBody, 'not published');
-    verdict(!$stillCandidate);
+    $notesBody = (string) file_get_contents($notesPath);
+    $lowered = strtolower($notesBody);
+
+    $stillCandidate = str_contains($lowered, 'release candidate')
+        || str_contains($lowered, 'not tagged')
+        || str_contains($lowered, 'not published');
+
+    // The heading is the contract: a specific line, not a date mentioned
+    // anywhere in the body. Removing the candidate wording alone must not be
+    // enough to pass.
+    $headingDated = (bool) preg_match(
+        '/^# LN-Starter ' . preg_quote($plain, '/') . ' — (\d{4})-(\d{2})-(\d{2})$/mu',
+        $notesBody,
+        $match
+    );
+
+    if ($headingDated) {
+        $notesDate = $match[0];
+        $notesDate = substr($notesDate, -10);
+
+        if (!checkdate((int) $match[2], (int) $match[3], (int) $match[1])) {
+            $headingDated = false;
+            $failures[] = 'The release notes heading carries an impossible date: ' . $notesDate;
+            $notesDate = null;
+        }
+    }
+
+    verdict(!$stillCandidate && $headingDated);
 
     if ($stillCandidate) {
         $failures[] = sprintf(
@@ -187,6 +213,14 @@ if ($requireFinal && $notesOk) {
             . 'Finalise it -- drop the candidate banner, add the date -- in its own commit, '
             . 'qualify that commit, then tag it. Tagging first cannot work: the tag would land '
             . 'on a commit this check refuses, and the policy forbids moving it.',
+            $plain
+        );
+    }
+
+    if (!$headingDated && $notesDate === null) {
+        $failures[] = sprintf(
+            'docs/releases/%s.md has no dated heading. Expected "# LN-Starter %s — YYYY-MM-DD".',
+            $plain,
             $plain
         );
     }
@@ -217,7 +251,20 @@ if ($requireFinal && $changelogOk) {
         }
     }
 
-    $dated = (bool) preg_match('/^## \[' . preg_quote($plain, '/') . '\] — \d{4}-\d{2}-\d{2}$/u', $sectionLine);
+    $dated = (bool) preg_match(
+        '/^## \[' . preg_quote($plain, '/') . '\] — (\d{4})-(\d{2})-(\d{2})$/u',
+        $sectionLine,
+        $clMatch
+    );
+
+    if ($dated) {
+        if (checkdate((int) $clMatch[2], (int) $clMatch[3], (int) $clMatch[1])) {
+            $changelogDate = substr($sectionLine, -10);
+        } else {
+            $dated = false;
+            $failures[] = 'The changelog heading carries an impossible date: ' . trim($sectionLine);
+        }
+    }
     verdict($dated);
 
     if (!$dated) {
@@ -228,6 +275,68 @@ if ($requireFinal && $changelogOk) {
             trim($sectionLine),
             $plain
         );
+    }
+}
+
+// UPGRADE.md is the document a consumer actually follows, so it is part of the
+// finalisation contract too. Shipping it with a candidate banner, or with an
+// "Unreleased" heading covering changes that are in this release, is the same
+// defect as shipping candidate release notes.
+if ($requireFinal) {
+    step('Upgrade notes are finalised');
+    $upgradePath = $root . '/UPGRADE.md';
+    $upgrade = is_file($upgradePath) ? (string) file_get_contents($upgradePath) : null;
+    $upgradeProblems = [];
+
+    if ($upgrade === null) {
+        $upgradeProblems[] = 'UPGRADE.md is missing';
+    } else {
+        if (stripos($upgrade, 'release candidate') !== false) {
+            $upgradeProblems[] = 'it still contains a release-candidate marker';
+        }
+
+        if (preg_match('/^##\s+Unreleased/mi', $upgrade)) {
+            $upgradeProblems[] = 'it still has an "Unreleased" section; fold those changes into the release';
+        }
+
+        $dateMatched = (bool) preg_match(
+            '/^## ' . preg_quote($plain, '/') . ' — (\d{4}-\d{2}-\d{2})$/mu',
+            $upgrade,
+            $upMatch
+        );
+
+        if (!$dateMatched) {
+            $upgradeProblems[] = sprintf('it has no dated heading; expected "## %s — YYYY-MM-DD"', $plain);
+        } elseif ($changelogDate !== null && $upMatch[1] !== $changelogDate) {
+            $upgradeProblems[] = sprintf(
+                'its date (%s) disagrees with the changelog (%s)',
+                $upMatch[1],
+                $changelogDate
+            );
+        }
+    }
+
+    verdict($upgradeProblems === []);
+
+    if ($upgradeProblems !== []) {
+        $failures[] = 'UPGRADE.md is not finalised: ' . implode('; ', $upgradeProblems) . '.';
+    }
+
+    // One release, one date. Two documents disagreeing means one of them was
+    // edited without the other, and whichever is wrong is the one a consumer
+    // will read.
+    if ($notesDate !== null && $changelogDate !== null) {
+        step('Release date agrees across documents');
+        $agree = $notesDate === $changelogDate;
+        verdict($agree);
+
+        if (!$agree) {
+            $failures[] = sprintf(
+                'The release notes are dated %s but the changelog says %s.',
+                $notesDate,
+                $changelogDate
+            );
+        }
     }
 }
 
