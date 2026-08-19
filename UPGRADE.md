@@ -10,8 +10,16 @@ The full breaking-change inventory, the required environment variables, the
 production requirements and the rollback constraints are in
 [docs/releases/2.0.0.md](docs/releases/2.0.0.md). The short form:
 
+### Environment: one requirement, one recommendation
+
+| Variable | Status | When |
+|---|---|---|
+| `LN_AUTH_PEPPER` | **Required** — the provider throws without it | Before `composer require`, not merely before the first artisan call: package discovery boots the provider during the require itself |
+| `LN_SECURITY_PSEUDONYM_KEY` | Recommended for production. It has an `APP_KEY`-derived fallback and does **not** block boot | Any time before you rely on the audit trail; set it so rotating `APP_KEY` cannot silently re-pseudonymise your history |
+
 ```bash
 # Fresh install
+# LN_AUTH_PEPPER into .env first — composer require boots the provider
 composer require livenetworks/ln-starter:^2.0
 php artisan ln-starter:install
 php artisan migrate
@@ -22,15 +30,16 @@ php artisan ln-starter:auth-v2-readiness
 # Upgrade from 1.2.1 — back up the database first.
 #
 # Order matters and is not the obvious one: ln-starter:auth-v2-audit does not
-# exist in 1.2.1, so it can only run AFTER the package is required. The peppers
+# exist in 1.2.1, so it can only run AFTER the package is required. The pepper
 # must be set BEFORE that, because package discovery boots the provider during
 # composer require and it validates auth configuration.
 
-# 1. LN_AUTH_PEPPER and LN_SECURITY_PSEUDONYM_KEY into .env
+# 1. LN_AUTH_PEPPER into .env  (LN_SECURITY_PSEUDONYM_KEY too, if you want it
+#    explicit rather than derived — recommended, but not a boot requirement)
 composer require livenetworks/ln-starter:^2.0
 
 php artisan ln-starter:auth-v2-audit      # names every stale v1 view; exits 0 when clean
-# 2. port or delete each path it reports, then re-run until it exits 0
+# 2. delete magic_wait/magic_success; port your customisations of views that remain
 
 php artisan ln-starter:install            # refuses to run while a stale view remains
 php artisan migrate
@@ -40,9 +49,6 @@ php artisan ln-starter:auth-v2-cutover --force   # irreversible
 php artisan config:cache && php artisan route:cache && php artisan view:cache
 # 3. restart queue workers, then smoke-test a real login
 ```
-
-Set the two secrets **before** the first artisan call: package discovery boots
-the provider, so a missing pepper fails during `composer require` itself.
 
 The cutover destroys pending v1 proofs and cannot be undone by downgrading.
 Users mid-login simply request a new link.

@@ -14,9 +14,22 @@ class AuthV2UpgradeAudit
         }
 
         $findings = [];
-        $waitView = $viewsPath . '/auth/magic_wait.blade.php';
-        if (is_file($waitView)) {
-            $findings[] = $waitView;
+
+        // Views auth v2 removed outright. Detected by name, because a
+        // published copy need not contain anything recognisable: the
+        // original magic_success.blade.php references no removed route and
+        // no legacy field, so the content scan below would never see it and
+        // it would sit in the consumer tree forever as dead state.
+        //
+        // magic_wait polls an endpoint that is now a tombstone; magic_success
+        // is orphaned, since v2 has no success page. Neither can be ported,
+        // so both are removals.
+        foreach (['magic_wait', 'magic_success'] as $removed) {
+            $path = $viewsPath . '/auth/' . $removed . '.blade.php';
+
+            if (is_file($path)) {
+                $findings[] = $path;
+            }
         }
 
         $legacyPatterns = [

@@ -125,23 +125,44 @@ governed by it are the `cookie.auth` bridge and the `/magic/wait` and
 A version becomes a release in exactly this order. No step may be skipped, and
 no step may run on a different artifact than the one before it.
 
-1. **Release candidate.** Release notes and changelog section are written on a
-   branch; the version is *not* tagged. `scripts/release-check.php` passes.
-2. **Full qualification.** The branch gets a complete green CI run: every test
-   matrix lane, the artifact job, and both consumer jobs.
-3. **Tag.** An annotated tag `vMAJOR.MINOR.PATCH` on the exact qualified commit.
-   The `v` prefix is canonical (see below).
-4. **Release workflow.** The tag triggers `.github/workflows/release.yml`. It
+1. **Release candidate.** Release notes and the changelog section are written
+   on a branch, openly marked as a candidate and undated. The version is *not*
+   tagged. `scripts/release-check.php` passes.
+2. **Branch qualification.** A complete green CI run: every test matrix lane,
+   the artifact job, and both consumer jobs.
+3. **Release finalisation commit.** The candidate banner comes off the release
+   notes and both documents gain the release date. This is its own commit, and
+   it is the commit that will be tagged.
+4. **Qualification of the finalised commit.** A second complete green CI run,
+   on that exact commit. Step 2 qualified different content.
+5. **Pre-tag preflight.** `scripts/release-check.php --version=vX.Y.Z
+   --require-final` locally, on a clean tree.
+6. **Rehearsal.** `workflow_dispatch` on `release.yml` with the same version.
+   It runs `--require-final` too, so the rehearsal exercises the path a tag
+   will take rather than a weaker one. Everything runs except publication.
+7. **Tag.** An annotated tag `vMAJOR.MINOR.PATCH` on the commit from step 3.
+8. **Release workflow and GitHub Release.** The tag triggers `release.yml`. It
    **calls** `tests.yml` rather than redefining a matrix, so a release runs the
    same 24 lanes, artifact job and consumer jobs as the branch — a reduced
    release matrix would let a tag publish on weaker evidence. It then builds
    exactly one archive through `release-check.php`, which exports that archive
    and its SHA-256; the consumer jobs download those bytes, verify the
    checksum, and run **both** the fresh-install and the upgrade harness
-   against them.
-5. **GitHub Release.** Created only after every gate in step 4 is green, with the
-   archive and its checksum attached.
-6. **Packagist.** Publishes from the tag. No token is stored in this repository.
+   against them. Only then is the GitHub Release created, with the archive and
+   its checksum attached.
+9. **Packagist.** Publishes from the tag. No token is stored in this
+   repository.
+
+### Why finalisation comes before the tag
+
+The obvious order — tag, then discover the notes still say "release candidate"
+— cannot be recovered from. The preflight would refuse the tagged commit, and
+this ADR forbids moving or deleting a published tag, so the only way out would
+be to burn the version number.
+
+So finalisation is a commit that gets qualified in its own right, and both the
+pre-tag preflight and the rehearsal assert it with `--require-final`. By the
+time a tag exists, the thing it points at has already proven it is publishable.
 
 Steps 1–2 are the release candidate. A release candidate that has not completed
 step 2 is not a release candidate; it is a branch.

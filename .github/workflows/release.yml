@@ -82,9 +82,12 @@ jobs:
           echo "Version under release: $VERSION"
 
       # Fail-closed preflight: canonical SemVer, clean tree, annotated tag on
-      # HEAD, finalised release notes, changelog section, manifest, source
-      # hygiene, then the archive — built, inspected, installed, checksummed
-      # and exported to --output-dir. Those exported bytes are the release.
+      # HEAD, finalised release notes and changelog, manifest, source hygiene,
+      # then the archive — built, inspected, installed, checksummed and
+      # exported to --output-dir. Those exported bytes are the release.
+      #
+      # --require-final on the dispatch path too, deliberately: a rehearsal
+      # against candidate documents would prove a path the tag can never take.
       - name: Release preflight and artifact export
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -92,7 +95,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release"
           php scripts/release-check.php \
             --version="$VERSION" \
-            --output-dir="$RUNNER_TEMP/release"
+            --output-dir="$RUNNER_TEMP/release" \
+            --require-final
 
           ls -l "$RUNNER_TEMP/release"
           ( cd "$RUNNER_TEMP/release" && sha256sum --check ./*.sha256 )

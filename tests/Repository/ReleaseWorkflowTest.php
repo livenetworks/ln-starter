@@ -355,11 +355,53 @@ class ReleaseWorkflowTest extends TestCase
         );
     }
 
-    public function test_the_preflight_refuses_candidate_notes_once_tagged(): void
+    /**
+     * Finalisation has to be provable BEFORE the tag exists.
+     *
+     * Checking it only once the tag is present is unrecoverable: the tag would
+     * already be on a commit the preflight refuses, and the policy forbids
+     * moving or deleting it, so the version number would have to be burned.
+     * --require-final brings the demand forward to the commit about to be
+     * tagged, and the workflow passes it on the rehearsal path too.
+     */
+    public function test_finalisation_is_enforced_before_a_tag_exists(): void
+    {
+        $candidate = $this->releaseCheck(['--version=v2.0.0', '--allow-dirty']);
+        $final = $this->releaseCheck(['--version=v2.0.0', '--allow-dirty', '--require-final']);
+
+        // Without the flag the candidate documents are acceptable: this is the
+        // release-candidate stage, and refusing here would be premature.
+        $this->assertStringNotContainsString('still describes itself as a release candidate', $candidate['output']);
+
+        $this->assertSame(1, $final['code']);
+        $this->assertStringContainsString('still describes itself as a release candidate', $final['output']);
+        $this->assertStringContainsString('is not finalised', $final['output']);
+    }
+
+    public function test_a_tag_implies_finalisation_without_the_flag(): void
     {
         $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');
 
-        $this->assertStringContainsString('still describes itself as a release candidate', $preflight);
+        $this->assertStringContainsString(
+            '$requireFinal = $requireFinal || $tagExists;',
+            $preflight,
+            'an existing tag must imply the same demand as --require-final'
+        );
+    }
+
+    /**
+     * A rehearsal run against candidate documents would prove a path the tag
+     * can never take.
+     */
+    public function test_the_rehearsal_demands_finalised_documents(): void
+    {
+        $contents = (string) file_get_contents($this->root() . self::RELEASE);
+
+        $this->assertStringContainsString(
+            '--require-final',
+            $contents,
+            'the release workflow must run the preflight in finalised mode'
+        );
     }
 
     public function test_the_release_preflight_is_actually_invoked(): void

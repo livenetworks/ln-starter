@@ -39,6 +39,39 @@ class AuthV2UpgradeAuditTest extends TestCase
         $this->assertCount(2, $findings);
     }
 
+    /**
+     * magic_success.blade.php is the case the content scan cannot catch: the
+     * shipped v1 copy references no removed route and no legacy field, so a
+     * consumer who published it unchanged would keep it forever as dead state
+     * while the audit reported nothing.
+     */
+    public function test_a_removed_view_with_no_legacy_markers_is_still_reported(): void
+    {
+        // Deliberately innocuous: nothing here matches a legacy pattern.
+        file_put_contents(
+            $this->directory . '/auth/magic_success.blade.php',
+            '@extends("layouts._auth")' . PHP_EOL . '@section("content")<p>Signed in.</p>@endsection'
+        );
+
+        $findings = (new AuthV2UpgradeAudit())->legacyPublishedViews($this->directory);
+
+        $this->assertCount(1, $findings);
+        $this->assertStringContainsString('magic_success.blade.php', $findings[0]);
+    }
+
+    public function test_both_removed_views_are_reported_once_each(): void
+    {
+        file_put_contents($this->directory . '/auth/magic_wait.blade.php', '/magic/status');
+        file_put_contents($this->directory . '/auth/magic_success.blade.php', 'nothing legacy here');
+
+        $findings = (new AuthV2UpgradeAudit())->legacyPublishedViews($this->directory);
+
+        // magic_wait matches both the name rule and the content rule; it must
+        // not be reported twice.
+        $this->assertSame($findings, array_values(array_unique($findings)));
+        $this->assertCount(2, $findings);
+    }
+
     public function test_v2_email_and_confirmation_overrides_pass(): void
     {
         file_put_contents($this->directory . '/auth/magic.blade.php', "route('auth.magic.link.consume')");

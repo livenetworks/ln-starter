@@ -21,7 +21,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__);
-$options = getopt('', ['version:', 'allow-dirty', 'allow-offline', 'keep', 'output-dir:']);
+$options = getopt('', ['version:', 'allow-dirty', 'allow-offline', 'keep', 'output-dir:', 'require-final']);
 
 $version = $options['version'] ?? null;
 $allowDirty = array_key_exists('allow-dirty', $options);
@@ -33,6 +33,15 @@ $keep = array_key_exists('keep', $options);
 // `composer archive` produces a different artifact, however identical it
 // looks, and would not be the file these checks passed on (ADR 0004).
 $outputDir = $options['output-dir'] ?? null;
+
+// Demand finalised documents even though no tag exists yet.
+//
+// Checking finalisation only once the tag exists is too late to be
+// useful: by then the tag is on a commit the preflight refuses, and the
+// policy forbids moving or deleting it. The finalisation commit has to
+// be qualified BEFORE it is tagged, so the pre-tag preflight and the
+// rehearsal both run with this flag.
+$requireFinal = array_key_exists('require-final', $options);
 
 $failures = [];
 $notes = [];
@@ -124,6 +133,10 @@ if (!$tagAgrees) {
     );
 }
 
+// A tag always implies finalisation; --require-final brings that same demand
+// forward to the commit that is about to be tagged.
+$requireFinal = $requireFinal || $tagExists;
+
 // ADR 0004 requires an annotated tag. A lightweight tag carries no tagger, no
 // date and no message, so it records nothing about who released what.
 if ($tagExists) {
@@ -160,7 +173,7 @@ if (!$notesOk) {
 
 // A tag means this is no longer a candidate. Release notes that still say so
 // would be published verbatim on the GitHub Release.
-if ($tagExists && $notesOk) {
+if ($requireFinal && $notesOk) {
     step('Release notes are finalised');
     $notesBody = strtolower((string) file_get_contents($notesPath));
     $stillCandidate = str_contains($notesBody, 'release candidate')
@@ -170,10 +183,11 @@ if ($tagExists && $notesOk) {
 
     if ($stillCandidate) {
         $failures[] = sprintf(
-            'docs/releases/%s.md still describes itself as a release candidate while tag %s exists. '
-            . 'Finalise the notes in their own commit, re-qualify, then tag.',
-            $plain,
-            $version
+            'docs/releases/%s.md still describes itself as a release candidate. '
+            . 'Finalise it -- drop the candidate banner, add the date -- in its own commit, '
+            . 'qualify that commit, then tag it. Tagging first cannot work: the tag would land '
+            . 'on a commit this check refuses, and the policy forbids moving it.',
+            $plain
         );
     }
 }
@@ -187,26 +201,32 @@ if (!$changelogOk) {
     $failures[] = sprintf('CHANGELOG.md has no "## [%s]" section.', $plain);
 }
 
-// A tagged release may not still describe itself as unreleased.
-if ($tagExists && $changelogOk) {
-    step('Changelog section is not marked unreleased');
+// A finalised changelog section carries a date and no longer says unreleased.
+// This is checked at the same moment as the release notes, and for the same
+// reason: it has to be true of the commit that gets tagged, not discovered
+// after the tag is already on it.
+if ($requireFinal && $changelogOk) {
+    step('Changelog section is finalised');
     $sectionLine = '';
 
-    foreach (explode("\n", $changelog) as $line) {
+    foreach (explode("
+", $changelog) as $line) {
         if (str_starts_with($line, '## [' . $plain . ']')) {
-            $sectionLine = $line;
+            $sectionLine = rtrim($line);
             break;
         }
     }
 
-    $dated = !str_contains(strtolower($sectionLine), 'unreleased');
+    $dated = (bool) preg_match('/^## \[' . preg_quote($plain, '/') . '\] — \d{4}-\d{2}-\d{2}$/u', $sectionLine);
     verdict($dated);
 
     if (!$dated) {
         $failures[] = sprintf(
-            'CHANGELOG.md still marks %s as unreleased while the tag exists: %s',
+            'CHANGELOG.md section for %s is not finalised: "%s". '
+            . 'Expected "## [%s] — YYYY-MM-DD".',
             $plain,
-            trim($sectionLine)
+            trim($sectionLine),
+            $plain
         );
     }
 }
