@@ -93,7 +93,7 @@ class ArtifactHandoffTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            '--output-path-file requires --keep-extracted',
+            'require --keep-extracted',
             $source,
             'a path may not be handed back for a directory that is about to be deleted'
         );
@@ -124,6 +124,23 @@ class ArtifactHandoffTest extends TestCase
         );
     }
 
+    /**
+     * The archive path is the other half of the handoff: release-check.php
+     * checksums that exact file, so it must be written by the same run that
+     * passed inspection rather than rebuilt.
+     */
+    public function test_the_archive_path_is_written_too(): void
+    {
+        $source = (string) file_get_contents($this->script);
+
+        $this->assertStringContainsString("\$outputArchiveFile = \$options[", $source);
+        $this->assertMatchesRegularExpression(
+            '/file_put_contents\(\s*\$outputArchiveFile/',
+            $source,
+            'the archive path option is read but never written'
+        );
+    }
+
     public function test_the_option_is_refused_without_keep_extracted(): void
     {
         $this->requireZip();
@@ -131,7 +148,7 @@ class ArtifactHandoffTest extends TestCase
         $result = $this->runScript(['--output-path-file=' . sys_get_temp_dir() . '/ln-handoff-probe.txt']);
 
         $this->assertSame(1, $result['code']);
-        $this->assertStringContainsString('requires --keep-extracted', $result['output']);
+        $this->assertStringContainsString('require --keep-extracted', $result['output']);
     }
 
     /**

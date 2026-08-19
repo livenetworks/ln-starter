@@ -22,7 +22,7 @@ $root = dirname(__DIR__);
 $failures = [];
 $notes = [];
 
-$options = getopt('', ['allow-offline', 'keep-extracted', 'output-path-file:']);
+$options = getopt('', ['allow-offline', 'keep-extracted', 'output-path-file:', 'output-archive-file:']);
 $allowOffline = array_key_exists('allow-offline', $options);
 
 // CI extracts once and hands the directory to the consumer harness, which is
@@ -32,12 +32,13 @@ $keepExtracted = array_key_exists('keep-extracted', $options);
 // Machine-readable handoff. Parsing a human-readable log for a path is how a
 // stray character in the log format silently becomes a broken CI step.
 $outputPathFile = $options['output-path-file'] ?? null;
+$outputArchiveFile = $options['output-archive-file'] ?? null;
 
-if ($outputPathFile !== null && !$keepExtracted) {
+if (($outputPathFile !== null || $outputArchiveFile !== null) && !$keepExtracted) {
     // Without --keep-extracted the directory is deleted before this
     // script returns, so the path would name something that no longer
     // exists. Refuse rather than hand back a dangling path.
-    fwrite(STDERR, '--output-path-file requires --keep-extracted.' . PHP_EOL);
+    fwrite(STDERR, '--output-path-file and --output-archive-file require --keep-extracted.' . PHP_EOL);
     exit(1);
 }
 
@@ -171,6 +172,7 @@ $required = [
     'resources/views/components/ln/modal.blade.php',
     'docs/security-logging.md',
     'docs/adr/0002-security-audit-logging-and-observability.md',
+    'docs/adr/0004-versioning-release-and-distribution.md',
     'skills/ln-starter/SKILL.md',
     'stubs/User.stub',
 ];
@@ -442,6 +444,19 @@ if ($keepExtracted) {
         }
 
         out('  path written to ' . $outputPathFile);
+    }
+
+    // The archive itself, so the caller can checksum exactly the build that
+    // passed — not a rebuild, which would be a different artifact.
+    if ($outputArchiveFile !== null && $outputArchiveFile !== '') {
+        $written = file_put_contents($outputArchiveFile, $archivePath . PHP_EOL, LOCK_EX);
+
+        if ($written === false) {
+            fwrite(STDERR, 'Unable to write the archive path to ' . $outputArchiveFile . PHP_EOL);
+            exit(1);
+        }
+
+        out('  archive path written to ' . $outputArchiveFile);
     }
 
     exit(0);

@@ -1,5 +1,41 @@
 # Upgrade notes
 
+## 2.0.0 (release candidate)
+
+**This is a major release. An installation that upgrades without changing
+configuration will not boot** — `auth.peppers.current` and `auth.peppers.keys`
+are now required and the service provider throws without them.
+
+The full breaking-change inventory, the required environment variables, the
+production requirements and the rollback constraints are in
+[docs/releases/2.0.0.md](docs/releases/2.0.0.md). The short form:
+
+```bash
+# Fresh install
+composer require livenetworks/ln-starter:^2.0
+php artisan ln-starter:install
+php artisan migrate
+php artisan ln-starter:auth-v2-readiness
+```
+
+```bash
+# Upgrade from 1.2.1 — back up the database first
+php artisan ln-starter:auth-v2-audit          # must exit 0 before continuing
+# add LN_AUTH_PEPPER and LN_SECURITY_PSEUDONYM_KEY to .env
+composer require livenetworks/ln-starter:^2.0
+php artisan migrate
+php artisan ln-starter:auth-v2-readiness
+php artisan ln-starter:auth-v2-cutover --force   # irreversible
+php artisan config:cache && php artisan route:cache && php artisan view:cache
+# restart queue workers, then smoke-test a real login
+```
+
+Set the two secrets **before** the first artisan call: package discovery boots
+the provider, so a missing pepper fails during `composer require` itself.
+
+The cutover destroys pending v1 proofs and cannot be undone by downgrading.
+Users mid-login simply request a new link.
+
 ## Unreleased — security audit logging & observability
 
 Nothing is required to keep working: the log sink is on by default, the database

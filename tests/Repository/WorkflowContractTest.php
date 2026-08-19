@@ -16,7 +16,10 @@ use PHPUnit\Framework\TestCase;
  */
 class WorkflowContractTest extends TestCase
 {
-    private const WORKFLOW = '/.github/workflows/tests.yml';
+    private const WORKFLOWS = [
+        '/.github/workflows/tests.yml',
+        '/.github/workflows/release.yml',
+    ];
 
     private function root(): string
     {
@@ -24,20 +27,31 @@ class WorkflowContractTest extends TestCase
     }
 
     /**
-     * Script paths the workflow invokes, normalised to repository-relative.
+     * Script paths the workflows invoke, normalised to repository-relative.
      *
-     * The consumer job checks the repository out under `package/`, so its
-     * invocations carry that prefix.
+     * Consumer jobs check the repository out under `package/`, so their
+     * invocations carry that prefix; the release workflow spells the same
+     * thing as $GITHUB_WORKSPACE/package.
      *
      * @return list<string>
      */
     private function invokedScripts(): array
     {
-        $workflow = (string) file_get_contents($this->root() . self::WORKFLOW);
+        $scripts = [];
 
-        preg_match_all('#\bphp\s+(?:package/)?(scripts/[A-Za-z0-9._/-]+\.php)#', $workflow, $matches);
+        foreach (self::WORKFLOWS as $workflow) {
+            $contents = (string) file_get_contents($this->root() . $workflow);
 
-        $scripts = array_values(array_unique($matches[1]));
+            preg_match_all(
+                '#php\s+"?(?:\$GITHUB_WORKSPACE/|package/)?(scripts/[A-Za-z0-9._/-]+\.php)#',
+                $contents,
+                $matches
+            );
+
+            $scripts = array_merge($scripts, $matches[1]);
+        }
+
+        $scripts = array_values(array_unique($scripts));
         sort($scripts);
 
         return $scripts;
@@ -51,10 +65,11 @@ class WorkflowContractTest extends TestCase
             [
                 'scripts/consumer-install.php',
                 'scripts/consumer-upgrade.php',
+                'scripts/release-check.php',
                 'scripts/verify-artifact.php',
             ],
             $this->invokedScripts(),
-            'the set of scripts the workflow drives has changed'
+            'the set of scripts the workflows drive has changed'
         );
     }
 

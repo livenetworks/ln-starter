@@ -2,7 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [2.0.0] — unreleased (release candidate)
+
+> **BREAKING.** Every installation upgrading from 1.x needs configuration
+> changes before it will boot: `auth.peppers.current` and `auth.peppers.keys`
+> are now required, and the service provider throws without them. See
+> [docs/releases/2.0.0.md](docs/releases/2.0.0.md) for the full inventory and
+> the upgrade procedure, and [UPGRADE.md](UPGRADE.md) for the step-by-step.
+>
+> Not tagged. The date is written when the tag is created.
 
 ### Added
 - Production support matrix and release contract (ADR 0003): Laravel 12/13 supported, Laravel 11 compatibility-only, MySQL/InnoDB and PostgreSQL supported, SQLite refused in production
@@ -27,6 +35,33 @@ All notable changes to this project will be documented in this file.
 - Auth v2 events renamed to the canonical catalog (`auth.magic.proof.accepted`, `auth.session.created`, `auth.session.terminated`, …); consumers matching the previous ad-hoc names must update
 - Magic-login state transitions stage their events and emit only after the locking transaction commits, so a rollback cannot produce a false success and exactly one winner reports acceptance under concurrency
 - Rate-limit events now distinguish email, IP, and session throttles through internal reason codes; the public response is unchanged
+- Add `<x-ln.logout-form />` as the CSRF-safe package logout control
+- Retain `/magic/wait` and `GET|POST /magic/status` for one release as inert compatibility endpoints that cannot issue credentials: `/magic/wait` redirects to the v2 login page, `/magic/status` returns HTTP 410 with the documented payload, and its POST variant keeps normal CSRF protection
+- Implement the accepted magic-link v2 link-plus-code state machine and its security acceptance suite
+- Tighten the auth-v2 specification with constrained route ordering, bounded confirmation contexts, explicit cross-device UX, layered rate limits, versioned pepper rotation, and a v1 published-view migration policy
+- Add a Laravel 11/12/13 CI matrix that runs on SQLite, MySQL, and PostgreSQL — the stack's documented primary database
+- Exclude Laravel 11 × PHP 8.5 from CI: 11.x reached end of life before PHP 8.5 shipped and will never receive a compatibility fix, so the lane would be permanently red without testing anything
+- Exclude `.claude/`, `.gitignore` and `.gitmodules` from the release archive
+- Add auth-v2 upgrade audit/readiness/cutover commands, published-view preflight, retention-aware cleanup, and a separate optional Sanctum migration tag
+- Auth views redesigned: card-based layout with gradient backgrounds, inline SVG icons, animations, and richer UX (info boxes, countdown, troubleshooting tips)
+- Auth SCSS (`auth.scss`) rewritten as fully standalone — no ln-acme dependency; uses CSS custom properties and self-contained BEM classes
+- Auth layout (`_auth.blade.php`) simplified to minimal HTML shell; views handle their own full-screen layout
+
+### Removed
+
+**Breaking.** Each of these is in the public API defined by [ADR 0004](docs/adr/0004-versioning-release-and-distribution.md).
+
+- Route names `auth.magic.show` and `auth.magic.consume`; a `route()` call for either now throws
+- `AuthController::magicShow()`, `magicConsume()`, `magicStatus()` and `magicWait()`
+- Published views `magic_wait.blade.php` and `magic_success.blade.php`; `ln-starter:install` refuses to run while an override of either is still published
+- `database/migrations/auth/create_magic_link_tokens_table.php` from every publish tag — the file remains in the tree but is no longer loaded or published
+- The Sanctum personal-access-token migration from `ln-starter-migrations`; it now has its own `ln-starter-sanctum-migrations` tag
+- Polling and personal-access-token issuance from the built-in login flow
+
+### Deprecated
+
+- The `cookie.auth` middleware and the `auth_token` cookie bridge. Auth v2 neither issues nor reads it. Still available for consumer-owned bearer APIs; removed in 3.0.0
+- `/magic/wait` and `GET|POST /magic/status`, kept inert for one release; removed in 3.0.0
 
 ### Security
 - Keep CSRF protection enabled for session and cookie-authenticated requests; only `disable-csrf:bearer` routes carrying an explicit Authorization bearer token are excluded
@@ -75,29 +110,61 @@ All notable changes to this project will be documented in this file.
 - Run the concurrency race test on PostgreSQL as well as MySQL/MariaDB, rather than skipping it on every non-MySQL driver
 - Separate the CI security policy from the compatibility policy: Laravel 12 and 13 are supported production lanes and must pass `composer audit`; Laravel 11 is an end-of-life compatibility lane that is exempt from the audit gate. A green Laravel 11 lane proves only that the package still installs and runs there — it is not evidence that Laravel 11 is security-supported, and the package does not advertise it as a production target. The EOL lane sets `COMPOSER_NO_SECURITY_BLOCKING=1` for dependency resolution; that variable is not recognised by Composer 2.8.10 (verified against the shipped phar), so it is currently inert and is kept only until the Composer version GitHub Actions actually provisions has been confirmed
 
-### Changed
-- Add `<x-ln.logout-form />` as the CSRF-safe package logout control
-- Retain `/magic/wait` and `GET|POST /magic/status` for one release as inert compatibility endpoints that cannot issue credentials: `/magic/wait` redirects to the v2 login page, `/magic/status` returns HTTP 410 with the documented payload, and its POST variant keeps normal CSRF protection
-- Implement the accepted magic-link v2 link-plus-code state machine and its security acceptance suite
-- Tighten the auth-v2 specification with constrained route ordering, bounded confirmation contexts, explicit cross-device UX, layered rate limits, versioned pepper rotation, and a v1 published-view migration policy
-- Add a Laravel 11/12/13 CI matrix that runs on SQLite, MySQL, and PostgreSQL — the stack's documented primary database
-- Exclude Laravel 11 × PHP 8.5 from CI: 11.x reached end of life before PHP 8.5 shipped and will never receive a compatibility fix, so the lane would be permanently red without testing anything
-- Exclude `.claude/`, `.gitignore` and `.gitmodules` from the release archive
-- Add auth-v2 upgrade audit/readiness/cutover commands, published-view preflight, retention-aware cleanup, and a separate optional Sanctum migration tag
-- Auth views redesigned: card-based layout with gradient backgrounds, inline SVG icons, animations, and richer UX (info boxes, countdown, troubleshooting tips)
-- Auth SCSS (`auth.scss`) rewritten as fully standalone — no ln-acme dependency; uses CSS custom properties and self-contained BEM classes
-- Auth layout (`_auth.blade.php`) simplified to minimal HTML shell; views handle their own full-screen layout
 
-## [0.1.0] — 2026-03-14
+## [1.2.1] — 2026-06-02
+
+### Fixed
+- Forget the `{locale}` route parameter after consuming it
+
+## [1.2.0] — 2026-04-07
+
+### Added
+- Auto-publish the Claude skill on package install
+
+## [1.1.1] — 2026-03-31
+
+### Fixed
+- Show the success page on POST instead of redirecting
+
+## [1.1.0] — 2026-03-31
+
+### Changed
+- Magic-link token consumption is POST-only
+
+## [1.0.0] — 2026-03-30
+
+First tagged release. Tagged `1.0.0`, without the `v` prefix used by every later
+tag; left as published rather than retagged (see
+[ADR 0004](docs/adr/0004-versioning-release-and-distribution.md)).
 
 ### Added
 - `LNController` with dual-mode response (`respondWith`)
-- `LNReadModel` (read-only Eloquent for DB views)
+- `LNReadModel` (read-only Eloquent for database views)
 - `LNWriteModel` (write Eloquent, no timestamps)
 - `Message` DTO for unified response messages
 - `BusinessException` for domain-level errors
-- Middleware: `AuthenticateWithSanctum`, `AuthorizationFromCookie`, `DisableCsrf`, `VerifyCsrfToken`
-- Blade layouts: `_ln` (layout switcher), `_ajax` (JSON response)
-- Config file with publishable assets
-- Stubs for scaffolding controllers and models
+- Middleware `AuthenticateWithSanctum` (with a `:required` guard), `AuthorizationFromCookie`, `DisableCsrf`, `VerifyCsrfToken`, and `SetLocale` for URL-prefix multilanguage
+- Blade layouts `_ln` (layout switcher) and `_ajax` (JSON response)
+- `<x-ln.toast />` and `<x-ln.modal />` components, aligned with ln-acme HTML conventions
+- Passwordless magic-link authentication with token management and a users-table migration
+- `ln-starter:install` with Vite entry injection, plus controller/model/user stubs
+- Publishable config, views, layouts, migrations, stubs and the Claude skill
 - Documentation (README, CLAUDE.md, docs/)
+
+### Changed
+- Require PHP 8.3 and support Illuminate 13.x
+- Auth views redesigned with standalone CSS, dropping the ln-acme dependency
+- Register core middleware aliases directly in the service provider
+
+### Fixed
+- Skip CSRF for token-authenticated users regardless of middleware order
+- Read the magic-link token by route name rather than position
+- Set `URL::defaults` so `route()` injects the locale parameter automatically
+- Auto-redirect to login when a magic-link token has expired
+
+---
+
+Sections below 1.0.0 describe pre-release development and were never tagged.
+The repository's first commit is dated 2026-03-14; a previously published
+`[0.1.0] — 2026-03-14` section in this file did not correspond to any tag and
+has been folded into 1.0.0 above, which is the first release that exists.
