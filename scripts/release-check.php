@@ -189,7 +189,12 @@ $changelogDate = null;
 // are not finalised either — ADR 0004 requires one.
 if ($requireFinal && $notesOk) {
     step('Release notes are finalised');
-    $notesBody = (string) file_get_contents($notesPath);
+    // CRLF-normalised before matching. In /m mode, $ matches before a line
+    // feed but not before a carriage return, so on a Windows checkout every
+    // dated-heading pattern here would be unmatchable and finalisation
+    // permanently impossible. Found by running the gate against the real
+    // documents rather than fixtures, which are written with LF.
+    $notesBody = str_replace(chr(13) . chr(10), chr(10), (string) file_get_contents($notesPath));
     $lowered = strtolower($notesBody);
 
     $stillCandidate = str_contains($lowered, 'release candidate')
@@ -238,7 +243,7 @@ if ($requireFinal && $notesOk) {
 }
 
 step('Changelog has a section for this version');
-$changelog = (string) file_get_contents($root . '/CHANGELOG.md');
+$changelog = str_replace(chr(13) . chr(10), chr(10), (string) file_get_contents($root . '/CHANGELOG.md'));
 $changelogOk = str_contains($changelog, '## [' . $plain . ']');
 verdict($changelogOk);
 
@@ -253,16 +258,22 @@ if (!$changelogOk) {
 if ($requireFinal && $changelogOk) {
     step('Changelog section is finalised');
     $sectionLine = '';
-    $sectionBody = [];
+    $preamble = [];
     $inSection = false;
 
-    // The heading alone is not the section. A finalised heading above a body
-    // that still says "Not tagged. The date is written when the tag is
-    // created." contradicts the release it is describing.
+    // The heading alone is not the section: a finalised heading above a status
+    // block still saying "Not tagged. The date is written when the tag is
+    // created." contradicts the release it describes.
     //
-    // Scoped to the ACTIVE section on purpose: older entries may legitimately
-    // contain these words, and scanning the whole file would make every
-    // release after the first unreleasable.
+    // Only the PREAMBLE is scanned — the lines between the heading and the
+    // first `###`. That is where a status banner lives. The entries below it
+    // are prose about what changed, and may legitimately contain any of these
+    // words: this very release has changelog entries describing the handling
+    // of "release candidate" wording and "Unreleased" sections. Scanning them
+    // would make the release undatable by its own description of itself.
+    //
+    // Scoped to the ACTIVE section too, since older entries may legitimately
+    // mention having once been a candidate.
 
     foreach (explode(chr(10), $changelog) as $line) {
         if (str_starts_with($line, '## [' . $plain . ']')) {
@@ -271,12 +282,14 @@ if ($requireFinal && $changelogOk) {
             continue;
         }
 
-        if ($inSection && str_starts_with($line, '## ')) {
+        // The preamble ends at the first entry heading, or at the next
+        // release, whichever comes first.
+        if ($inSection && (str_starts_with($line, '## ') || str_starts_with($line, '### '))) {
             break;
         }
 
         if ($inSection) {
-            $sectionBody[] = $line;
+            $preamble[] = $line;
         }
     }
 
@@ -294,12 +307,12 @@ if ($requireFinal && $changelogOk) {
             $failures[] = 'The changelog heading carries an impossible date: ' . trim($sectionLine);
         }
     }
-    // The body of the active section must not contradict the heading.
-    $bodyText = strtolower(implode(chr(10), $sectionBody));
+    // The status block must not contradict the heading above it.
+    $preambleText = strtolower(implode(chr(10), $preamble));
     $bodyMarkers = [];
 
     foreach (['not tagged', 'not published', 'release candidate', 'unreleased'] as $marker) {
-        if (str_contains($bodyText, $marker)) {
+        if (str_contains($preambleText, $marker)) {
             $bodyMarkers[] = $marker;
         }
     }
@@ -308,7 +321,7 @@ if ($requireFinal && $changelogOk) {
 
     if ($bodyMarkers !== []) {
         $failures[] = sprintf(
-            'The CHANGELOG.md section for %s still says: %s. '
+            'The CHANGELOG.md status block for %s still says: %s. '
             . 'A finalised section may not contradict its own date.',
             $plain,
             implode(', ', $bodyMarkers)
@@ -333,7 +346,9 @@ if ($requireFinal && $changelogOk) {
 if ($requireFinal) {
     step('Upgrade notes are finalised');
     $upgradePath = $root . '/UPGRADE.md';
-    $upgrade = is_file($upgradePath) ? (string) file_get_contents($upgradePath) : null;
+    $upgrade = is_file($upgradePath)
+        ? str_replace(chr(13) . chr(10), chr(10), (string) file_get_contents($upgradePath))
+        : null;
     $upgradeProblems = [];
 
     if ($upgrade === null) {

@@ -144,9 +144,71 @@ class ReleaseFinalisationTest extends TestCase
         );
     }
 
-    public function test_fully_finalised_documents_pass_every_gate(): void
+    public function test_fully_finalised_documents_pass_every_document_gate(): void
     {
         $this->writeDocuments();
+
+        $output = $this->check();
+
+        $this->assertStepPassed('Release notes are finalised', $output);
+        $this->assertStepPassed('Changelog section is finalised', $output);
+        $this->assertStepPassed('Upgrade notes are finalised', $output);
+        $this->assertStepPassed('Release date agrees across documents', $output);
+    }
+
+    /**
+     * The entries in the active section are prose about what changed, and may
+     * legitimately contain the very words the status block may not. This
+     * release's own changelog describes handling "release candidate" wording
+     * and "Unreleased" sections; scanning the whole section would make it
+     * undatable by its own description of itself.
+     */
+    public function test_active_entries_may_use_the_words_the_status_block_may_not(): void
+    {
+        $date = self::DATE;
+
+        $this->writeDocuments([
+            'changelog' => "# Changelog
+
+## [2.0.0] — {$date}
+
+"
+                . "### Fixed
+"
+                . "- Refuse a release whose notes still say \"release candidate\"
+"
+                . "- Fold the \"Unreleased\" upgrade sections into this release
+"
+                . "- Stop claiming the changelog is \"not tagged\" once it is dated
+",
+        ]);
+
+        $output = $this->check();
+
+        $this->assertStepPassed('Changelog section is finalised', $output);
+    }
+
+    /**
+     * The gate matches dated headings with `$` in /m mode, which matches before
+     * a line feed but not before a carriage return. On a CRLF checkout — the
+     * normal state of this repository on Windows — every heading pattern was
+     * unmatchable and finalisation was permanently impossible. Fixture
+     * documents are written with LF, so only the real files exposed it.
+     */
+    public function test_documents_with_crlf_line_endings_are_accepted(): void
+    {
+        $this->writeDocuments();
+
+        foreach (['/CHANGELOG.md', '/UPGRADE.md', '/docs/releases/2.0.0.md'] as $relative) {
+            $path = $this->fixture . $relative;
+            $contents = (string) file_get_contents($path);
+
+            file_put_contents($path, str_replace("
+", "
+", str_replace("
+", "
+", $contents)));
+        }
 
         $output = $this->check();
 
