@@ -151,10 +151,14 @@ jobs:
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.3'
+          extensions: mbstring, zip
           coverage: none
 
-      # Proves the published package is installable and free of local
-      # artefacts, rather than only proving the working tree is.
+      # Proves the published archive is free of local artefacts, carries a
+      # valid manifest, and installs and autoloads as a dependency. It does
+      # NOT boot the provider as a Laravel package — a minimal Composer
+      # project has no artisan and no package:discover hook. That is what the
+      # consumer job below does, against this same extracted archive.
       - name: Inspect the distributable artifact
         run: php scripts/verify-artifact.php   # no --allow-offline: installability is a gate
 

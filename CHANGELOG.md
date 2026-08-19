@@ -42,6 +42,7 @@ All notable changes to this project will be documented in this file.
 - Fail auth-v2 production readiness when the database cannot provide transactional row locking (SQLite, or a non-InnoDB `magic_login_attempts` table), since `lockForUpdate()` is silently a no-op there and single-use consumption would not be atomic
 
 ### Fixed
+- Actually write the artifact path handed to CI: `--output-path-file` was read but never written, so the consumer job that reads it could only fail. It is now written after every check passes, refuses to run without `--keep-extracted` (which would name a directory about to be deleted), and fails the gate if the write fails. Covered by a regression test that fails when the write is removed
 - Add a source-hygiene gate that rejects C0 control characters and invalid UTF-8 in tracked files, and parses the CI workflow. Two escape sequences had been written literally as bytes 0x01 and 0x02 — invisible to `php -l`, PHPUnit, and `git diff --check`, but enough to break a regex backreference and a workflow step
 - Hand the extracted artifact path to CI through a file instead of parsing it out of human-readable output
 - Refuse an empty or unknown database host in the test-reset guard instead of treating it as loopback, and stop counting `host.docker.internal` as local

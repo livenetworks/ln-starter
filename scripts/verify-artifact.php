@@ -33,6 +33,14 @@ $keepExtracted = array_key_exists('keep-extracted', $options);
 // stray character in the log format silently becomes a broken CI step.
 $outputPathFile = $options['output-path-file'] ?? null;
 
+if ($outputPathFile !== null && !$keepExtracted) {
+    // Without --keep-extracted the directory is deleted before this
+    // script returns, so the path would name something that no longer
+    // exists. Refuse rather than hand back a dangling path.
+    fwrite(STDERR, '--output-path-file requires --keep-extracted.' . PHP_EOL);
+    exit(1);
+}
+
 function out(string $line): void
 {
     fwrite(STDOUT, $line . PHP_EOL);
@@ -394,11 +402,6 @@ PHP;
 
 // ---------------------------------------------------------------- cleanup
 if ($keepExtracted) {
-    out('');
-    out('Extracted artifact kept for the consumer harness:');
-    out('  ' . $packageRoot);
-    out('');
-
     foreach ($notes as $note) {
         out('  note: ' . $note);
     }
@@ -407,7 +410,26 @@ if ($keepExtracted) {
         foreach ($failures as $failure) {
             fwrite(STDERR, '  FAIL: ' . $failure . PHP_EOL);
         }
+
+        fwrite(STDERR, PHP_EOL . count($failures) . ' artifact check(s) failed.' . PHP_EOL);
         exit(1);
+    }
+
+    out('');
+    out('Extracted artifact kept for the consumer harness:');
+    out('  ' . $packageRoot);
+
+    // Written only after every check has passed, so a consumer job can
+    // never be handed the path of an artifact that failed inspection.
+    if ($outputPathFile !== null && $outputPathFile !== '') {
+        $written = file_put_contents($outputPathFile, $packageRoot . PHP_EOL, LOCK_EX);
+
+        if ($written === false) {
+            fwrite(STDERR, 'Unable to write the artifact path to ' . $outputPathFile . PHP_EOL);
+            exit(1);
+        }
+
+        out('  path written to ' . $outputPathFile);
     }
 
     exit(0);
