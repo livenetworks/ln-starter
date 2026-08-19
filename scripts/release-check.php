@@ -20,8 +20,19 @@
 
 declare(strict_types=1);
 
-$root = dirname(__DIR__);
-$options = getopt('', ['version:', 'allow-dirty', 'allow-offline', 'keep', 'output-dir:', 'require-final']);
+$options = getopt('', ['version:', 'allow-dirty', 'allow-offline', 'keep', 'output-dir:', 'require-final', 'root:']);
+
+// The repository to check. Defaults to this script's own; --root exists so
+// the document gates can be exercised against fixtures, which is the only
+// way to test them as behaviour rather than as source text.
+$root = $options['root'] ?? dirname(__DIR__);
+$root = realpath($root) ?: $root;
+
+if (!is_dir($root)) {
+    fwrite(STDERR, 'No such directory: ' . $root . PHP_EOL);
+    exit(1);
+}
+
 
 $version = $options['version'] ?? null;
 $allowDirty = array_key_exists('allow-dirty', $options);
@@ -242,12 +253,30 @@ if (!$changelogOk) {
 if ($requireFinal && $changelogOk) {
     step('Changelog section is finalised');
     $sectionLine = '';
+    $sectionBody = [];
+    $inSection = false;
 
-    foreach (explode("
-", $changelog) as $line) {
+    // The heading alone is not the section. A finalised heading above a body
+    // that still says "Not tagged. The date is written when the tag is
+    // created." contradicts the release it is describing.
+    //
+    // Scoped to the ACTIVE section on purpose: older entries may legitimately
+    // contain these words, and scanning the whole file would make every
+    // release after the first unreleasable.
+
+    foreach (explode(chr(10), $changelog) as $line) {
         if (str_starts_with($line, '## [' . $plain . ']')) {
             $sectionLine = rtrim($line);
+            $inSection = true;
+            continue;
+        }
+
+        if ($inSection && str_starts_with($line, '## ')) {
             break;
+        }
+
+        if ($inSection) {
+            $sectionBody[] = $line;
         }
     }
 
@@ -265,7 +294,26 @@ if ($requireFinal && $changelogOk) {
             $failures[] = 'The changelog heading carries an impossible date: ' . trim($sectionLine);
         }
     }
-    verdict($dated);
+    // The body of the active section must not contradict the heading.
+    $bodyText = strtolower(implode(chr(10), $sectionBody));
+    $bodyMarkers = [];
+
+    foreach (['not tagged', 'not published', 'release candidate', 'unreleased'] as $marker) {
+        if (str_contains($bodyText, $marker)) {
+            $bodyMarkers[] = $marker;
+        }
+    }
+
+    verdict($dated && $bodyMarkers === []);
+
+    if ($bodyMarkers !== []) {
+        $failures[] = sprintf(
+            'The CHANGELOG.md section for %s still says: %s. '
+            . 'A finalised section may not contradict its own date.',
+            $plain,
+            implode(', ', $bodyMarkers)
+        );
+    }
 
     if (!$dated) {
         $failures[] = sprintf(

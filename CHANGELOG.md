@@ -10,7 +10,8 @@ All notable changes to this project will be documented in this file.
 > [docs/releases/2.0.0.md](docs/releases/2.0.0.md) for the full inventory and
 > the upgrade procedure, and [UPGRADE.md](UPGRADE.md) for the step-by-step.
 >
-> Not tagged. The date is written when the tag is created.
+> Not tagged. The date is written in the release-finalisation commit, which is
+> then qualified and only afterwards tagged — see [ADR 0004](docs/adr/0004-versioning-release-and-distribution.md).
 
 ### Added
 - Production support matrix and release contract (ADR 0003): Laravel 12/13 supported, Laravel 11 compatibility-only, MySQL/InnoDB and PostgreSQL supported, SQLite refused in production
@@ -77,6 +78,8 @@ All notable changes to this project will be documented in this file.
 - Fail auth-v2 production readiness when the database cannot provide transactional row locking (SQLite, or a non-InnoDB `magic_login_attempts` table), since `lockForUpdate()` is silently a no-op there and single-use consumption would not be atomic
 
 ### Fixed
+- Check the **body** of the active changelog section at finalisation, not only its heading. A dated `## [2.0.0] — YYYY-MM-DD` above a body still saying "Not tagged. The date is written when the tag is created." would have passed the gate while contradicting the release it describes. The scan is scoped to the active section on purpose: historical entries may legitimately contain those words, and scanning the whole file would make every release after the first unreleasable
+- Correct that sentence too — it contradicted ADR 0004, which puts the date in the release-finalisation commit, before the tag rather than at tagging time
 - Close the remaining gap in `--require-final`. Dropping the words "release candidate" was enough to pass, even though ADR 0004 requires a date, and `UPGRADE.md` was not checked at all — so a release could ship with a candidate banner and an `Unreleased` heading covering changes it contains. Finalisation now demands a dated `# LN-Starter X.Y.Z — YYYY-MM-DD` heading in the release notes, a dated `## X.Y.Z — YYYY-MM-DD` heading in `UPGRADE.md` with no candidate marker and no leftover `Unreleased` section, and one real calendar date agreed across all three documents
 - Fold the security-logging and production-requirements sections of `UPGRADE.md` into 2.0.0. They were headed `Unreleased` while describing changes this release ships
 - Make release finalisation provable **before** the tag exists. The preflight checked for candidate wording only once a tag was present, which is unrecoverable: the tag would already be on a commit the preflight refuses, and the policy forbids moving it, so the version number would have to be burned. `--require-final` brings the same demand forward to the commit about to be tagged, requires a dated changelog heading, and the release workflow passes it on the rehearsal path too, so a dry run exercises the path a tag will take
