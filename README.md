@@ -349,6 +349,12 @@ npm run build
 
 > The auth SCSS is **fully standalone** — no `ln-acme` or other npm peer dependency required. All styles (custom properties, reset, animations, BEM components) are self-contained.
 
+> The auth pages render **before** any of this. The shipped layout emits the
+> Vite tags only once the application has actually built these entries, so a
+> fresh install — or a deploy where the asset build was skipped — gets an
+> unstyled but working login page rather than HTTP 500 on the entry point of
+> the auth flow.
+
 **3. User model prerequisites**
 
 Your `User` model must:

@@ -5,10 +5,14 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title>@yield('title', config('app.name'))</title>
 
-		@vite([
-			'resources/scss/auth.scss',
-			'resources/js/app.js'
-		])
+		{{-- Emitted only when the application has built these entries. @vite()
+		     throws otherwise, which would turn a missing `npm run build` into a
+		     500 on the entry point of the login flow. --}}
+		@php($lnAuthAssets = ['resources/scss/auth.scss', 'resources/js/app.js'])
+
+		@if (\LiveNetworks\LnStarter\Support\FrontendAssets::viteEntriesBuilt($lnAuthAssets))
+			@vite($lnAuthAssets)
+		@endif
 
 		@stack('styles')
 	</head>
