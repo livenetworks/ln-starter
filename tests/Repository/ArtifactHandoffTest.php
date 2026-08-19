@@ -24,7 +24,6 @@ class ArtifactHandoffTest extends TestCase
         if (!is_file($this->script)) {
             $this->markTestSkipped('verify-artifact.php is missing.');
         }
-
     }
 
     private function requireZip(): void
@@ -36,11 +35,23 @@ class ArtifactHandoffTest extends TestCase
         // Probed through a temp file rather than php -r: on Windows
         // escapeshellarg() replaces double quotes with spaces, which silently
         // corrupts inline code.
-        $probe = tempnam(sys_get_temp_dir(), 'ln-zip-probe') . '.php';
-        file_put_contents($probe, '<?php exit(extension_loaded(\'zip\') ? 0 : 1);');
+        //
+        // tempnam() creates the file itself, so its return value is used as
+        // is. Appending an extension would orphan the created file and delete
+        // only the second path; the CLI does not need a .php suffix.
+        $probe = tempnam(sys_get_temp_dir(), 'ln-zip-probe');
 
-        exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($probe) . ' 2>&1', $ignored, $code);
-        @unlink($probe);
+        if ($probe === false) {
+            $this->markTestSkipped('No writable temporary directory for the zip probe.');
+        }
+
+        try {
+            file_put_contents($probe, '<?php exit(extension_loaded("zip") ? 0 : 1);');
+
+            exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($probe) . ' 2>&1', $ignored, $code);
+        } finally {
+            @unlink($probe);
+        }
 
         if ($code !== 0) {
             $this->markTestSkipped('The zip extension is unavailable to ' . PHP_BINARY . '.');
@@ -116,8 +127,20 @@ class ArtifactHandoffTest extends TestCase
         ]);
 
         try {
+            // A skip is only honest for a precondition this machine cannot
+            // satisfy. Composer is the one such tool the script needs and
+            // cannot pre-check (zip is checked above). Every other non-zero
+            // exit is a real failure of the handoff contract and must be red,
+            // with the whole output, rather than disappearing into a skip.
             if ($result['code'] !== 0) {
-                $this->markTestSkipped('The artifact could not be built here: ' . $result['output']);
+                if (str_contains($result['output'], 'Composer not found')) {
+                    $this->markTestSkipped('Composer is unavailable; the archive cannot be built here.');
+                }
+
+                $this->fail(
+                    'verify-artifact.php exited with ' . $result['code']
+                    . ' but the handoff contract must hold:' . PHP_EOL . $result['output']
+                );
             }
 
             $this->assertFileExists($target, 'the path file was never written');
@@ -153,7 +176,10 @@ class ArtifactHandoffTest extends TestCase
 
         $workspace = dirname($extracted);
 
-        if (!preg_match('#[\\/]ln-starter-artifact-[0-9a-f]{12}$#', $workspace)) {
+        // Matched on the basename, not the whole path: inside a character
+        // class PCRE reads \/ as an escaped forward slash, so [\/] never
+        // matches a Windows separator and the cleanup silently never ran.
+        if (!preg_match('/^ln-starter-artifact-[0-9a-f]{12}$/', basename($workspace))) {
             return;
         }
 

@@ -25,8 +25,8 @@ $notes = [];
 $options = getopt('', ['allow-offline', 'keep-extracted', 'output-path-file:']);
 $allowOffline = array_key_exists('allow-offline', $options);
 
-// CI extracts once and hands the directory to the consumer harness, so that
-// package discovery is exercised against the published archive.
+// CI extracts once and hands the directory to the consumer harness, which is
+// where package discovery is exercised against the published archive.
 $keepExtracted = array_key_exists('keep-extracted', $options);
 
 // Machine-readable handoff. Parsing a human-readable log for a path is how a
@@ -315,9 +315,11 @@ file_put_contents($installDir . DIRECTORY_SEPARATOR . 'composer.json', json_enco
 
 out('Installing the artifact as a dependency…');
 
-// A real install, not --dry-run: only this exercises autoloading and Laravel
-// package discovery against the shipped files. A dry run resolves versions and
-// proves nothing about whether the archive actually works.
+// A real install, not --dry-run: this proves the shipped files resolve and
+// autoload as a dependency. It is NOT package discovery — a minimal Composer
+// project has no artisan and no package:discover hook, so the provider is
+// never booted here. That is what the consumer harness proves, against this
+// same extracted archive. A dry run would establish neither.
 exec(
     $composer . ' install --no-interaction --no-progress --prefer-dist'
     . ' --working-dir=' . escapeshellarg($installDir) . ' 2>&1',
