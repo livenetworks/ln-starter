@@ -25,6 +25,21 @@ function note(string $text): void
 function fail(string $message): never
 {
     fwrite(STDERR, PHP_EOL . 'FAIL: ' . $message . PHP_EOL);
+
+    // On GitHub the run summary shows only "Process completed with exit
+    // code 1", and reading the step log requires repository admin rights.
+    // A failed gate nobody can diagnose from the run page costs a whole
+    // round trip, so the reason is emitted as an annotation as well.
+    // Encoded in PHP rather than in YAML: the shell quoting this would
+    // need is exactly what once wrote literal control bytes into the
+    // workflow.
+    if (getenv('GITHUB_ACTIONS') === 'true') {
+        $encoded = str_replace('%', '%25', substr($message, 0, 3000));
+        $encoded = str_replace([chr(13) . chr(10), chr(13), chr(10)], '%0A', $encoded);
+
+        fwrite(STDOUT, '::error title=Harness gate failed::' . $encoded . PHP_EOL);
+    }
+
     exit(1);
 }
 
