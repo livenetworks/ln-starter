@@ -3,6 +3,10 @@ name: Tests
 on:
   push:
   pull_request:
+  # Called by release.yml so a release runs THIS qualification, not a reduced
+  # copy of it. A release must not be able to pass a weaker matrix than the
+  # branch it came from.
+  workflow_call:
 
 permissions:
   contents: read

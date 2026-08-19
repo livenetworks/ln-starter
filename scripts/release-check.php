@@ -21,12 +21,18 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__);
-$options = getopt('', ['version:', 'allow-dirty', 'allow-offline', 'keep']);
+$options = getopt('', ['version:', 'allow-dirty', 'allow-offline', 'keep', 'output-dir:']);
 
 $version = $options['version'] ?? null;
 $allowDirty = array_key_exists('allow-dirty', $options);
 $allowOffline = array_key_exists('allow-offline', $options);
 $keep = array_key_exists('keep', $options);
+
+// Where the qualified archive and its checksum are copied for a caller to
+// publish. This is the ONLY way to obtain a release artifact: a second
+// `composer archive` produces a different artifact, however identical it
+// looks, and would not be the file these checks passed on (ADR 0004).
+$outputDir = $options['output-dir'] ?? null;
 
 $failures = [];
 $notes = [];
@@ -118,6 +124,23 @@ if (!$tagAgrees) {
     );
 }
 
+// ADR 0004 requires an annotated tag. A lightweight tag carries no tagger, no
+// date and no message, so it records nothing about who released what.
+if ($tagExists) {
+    step('Tag is annotated');
+    $type = run('git -C ' . escapeshellarg($root) . ' cat-file -t ' . escapeshellarg($version));
+    $annotated = trim($type['output']) === 'tag';
+    verdict($annotated);
+
+    if (!$annotated) {
+        $failures[] = sprintf(
+            'Tag %s is %s, not an annotated tag. Create it with `git tag -a`.',
+            $version,
+            trim($type['output']) ?: 'unreadable'
+        );
+    }
+}
+
 $notes[] = $tagExists
     ? sprintf('Tag %s exists and points at HEAD.', $version)
     : sprintf('Tag %s does not exist yet; this is a candidate.', $version);
@@ -133,6 +156,26 @@ if (!$notesOk) {
         'docs/releases/%s.md is missing or too short to be real release notes.',
         $plain
     );
+}
+
+// A tag means this is no longer a candidate. Release notes that still say so
+// would be published verbatim on the GitHub Release.
+if ($tagExists && $notesOk) {
+    step('Release notes are finalised');
+    $notesBody = strtolower((string) file_get_contents($notesPath));
+    $stillCandidate = str_contains($notesBody, 'release candidate')
+        || str_contains($notesBody, 'not tagged')
+        || str_contains($notesBody, 'not published');
+    verdict(!$stillCandidate);
+
+    if ($stillCandidate) {
+        $failures[] = sprintf(
+            'docs/releases/%s.md still describes itself as a release candidate while tag %s exists. '
+            . 'Finalise the notes in their own commit, re-qualify, then tag.',
+            $plain,
+            $version
+        );
+    }
 }
 
 step('Changelog has a section for this version');
@@ -359,6 +402,43 @@ if ($disqualifiers !== []) {
     exit(1);
 }
 
+// The qualified artifact is exported here, before the success message, so a
+// failure to export is a failure of the run. A caller that publishes must take
+// these bytes: rebuilding would publish something these checks never saw.
+if ($outputDir !== null && $outputDir !== '') {
+    if (!is_dir($outputDir) && !mkdir($outputDir, 0700, true) && !is_dir($outputDir)) {
+        fwrite(STDERR, 'Unable to create output directory ' . $outputDir . PHP_EOL);
+        exit(1);
+    }
+
+    $exports = [
+        $archivePath => $outputDir . DIRECTORY_SEPARATOR . basename((string) $archivePath),
+        $archivePath . '.sha256' => $outputDir . DIRECTORY_SEPARATOR . basename((string) $archivePath) . '.sha256',
+    ];
+
+    foreach ($exports as $from => $to) {
+        if (!is_file($from) || !copy($from, $to)) {
+            fwrite(STDERR, 'Unable to export ' . $from . ' to ' . $to . PHP_EOL);
+            exit(1);
+        }
+    }
+
+    // Re-checksum what actually landed. A truncated copy would otherwise be
+    // published under the checksum of the file it was copied from.
+    $exported = $outputDir . DIRECTORY_SEPARATOR . basename((string) $archivePath);
+
+    if (hash_file('sha256', $exported) !== $checksum) {
+        fwrite(STDERR, 'Exported archive does not match the checksum it was qualified under.' . PHP_EOL);
+        exit(1);
+    }
+
+    out();
+    out('Exported the qualified artifact to ' . $outputDir);
+    out('  ' . basename((string) $archivePath));
+    out('  ' . basename((string) $archivePath) . '.sha256');
+}
+
+out();
 out('Release preflight passed for ' . $version . '.');
 out('This qualifies the artifact above. Publishing it still requires a tag and');
 out('a green release workflow run — see ADR 0004.');

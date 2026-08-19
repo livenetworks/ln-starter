@@ -106,6 +106,20 @@ never promised it as a supported target; raising the `illuminate/*` floor in
    there is no compatible fix. It must say so in its changelog entry, in its own
    `### Security` section, and the release notes must lead with it.
 
+### The 1.x removals are a grandfathered exception
+
+This policy is adopted with this ADR, so 2.0.0 cannot have honoured it: the
+auth v1 surface is removed without ever having been deprecated in a 1.x minor,
+and no 90-day window ran. That is a one-time exception, recorded rather than
+glossed over, and bounded by two things — auth v1 could not be made safe in
+place, and the removed endpoints survive as inert shims for one release rather
+than disappearing outright.
+
+From 2.0.0 onward the window applies without exception. The first removals
+governed by it are the `cookie.auth` bridge and the `/magic/wait` and
+`/magic/status` shims, all deprecated as of 2.0.0 and removed no earlier than
+3.0.0.
+
 ## Release flow
 
 A version becomes a release in exactly this order. No step may be skipped, and
@@ -117,9 +131,14 @@ no step may run on a different artifact than the one before it.
    matrix lane, the artifact job, and both consumer jobs.
 3. **Tag.** An annotated tag `vMAJOR.MINOR.PATCH` on the exact qualified commit.
    The `v` prefix is canonical (see below).
-4. **Release workflow.** The tag triggers `.github/workflows/release.yml`, which
-   re-runs qualification, builds **one** archive, generates its SHA-256, and
-   installs a consumer from that same archive.
+4. **Release workflow.** The tag triggers `.github/workflows/release.yml`. It
+   **calls** `tests.yml` rather than redefining a matrix, so a release runs the
+   same 24 lanes, artifact job and consumer jobs as the branch — a reduced
+   release matrix would let a tag publish on weaker evidence. It then builds
+   exactly one archive through `release-check.php`, which exports that archive
+   and its SHA-256; the consumer jobs download those bytes, verify the
+   checksum, and run **both** the fresh-install and the upgrade harness
+   against them.
 5. **GitHub Release.** Created only after every gate in step 4 is green, with the
    archive and its checksum attached.
 6. **Packagist.** Publishes from the tag. No token is stored in this repository.
@@ -155,10 +174,15 @@ Three rules follow, and they are the point of this section:
 `composer install` from Packagist resolves the tag, not the workflow artifact.
 The archive is therefore a *verification* artifact and a release attachment, not
 the delivery channel. It exists so that what the tag contains has been installed
-by something before anyone depends on it. This is why the artifact job and the
-consumer job must use the same extracted directory: it is the only step that
-proves the shipped file set, minus everything `export-ignore` strips, boots as a
-Laravel package.
+by something before anyone depends on it.
+
+The guarantee between jobs is therefore the **checksum**, not a shared
+directory: separate jobs run on separate machines and cannot share a
+filesystem. The artifact job exports the qualified archive and its SHA-256;
+every later job downloads both and verifies the checksum before touching the
+contents. That is what makes the consumer install meaningful — it proves the
+shipped file set, minus everything `export-ignore` strips, boots as a Laravel
+package.
 
 ## Rollback and yank
 

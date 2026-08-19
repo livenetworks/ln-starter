@@ -25,109 +25,29 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------ gate 1
-  # The same qualification the branch gets. A tag does not exempt anything:
-  # tests.yml runs on push, but a tag may point at a commit whose branch run
-  # predates a force-push, so it is re-run here against the tagged tree.
+  # The full branch qualification, called rather than copied: 24 test lanes,
+  # the artifact job and both consumer jobs. A reduced release matrix would
+  # let a tag be published on weaker evidence than the branch it came from,
+  # and `publish` needs this job, so a red Tests run blocks the release.
   qualify:
-    name: L${{ matrix.framework.laravel }} / PHP ${{ matrix.php }} / ${{ matrix.database }}
-    runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        framework:
-          - laravel: '12'
-            testbench: '^10.11'
-          - laravel: '13'
-            testbench: '^11.2'
-        php: ['8.3', '8.4', '8.5']
-        database: [mysql, pgsql]
-
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_DATABASE: ln_starter_ci
-          MYSQL_ROOT_PASSWORD: root
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping --host=127.0.0.1 --user=root --password=root"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_DB: ln_starter_ci
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready --username=postgres --dbname=ln_starter_ci"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-
-    env:
-      DB_CONNECTION: ${{ matrix.database }}
-      DB_HOST: 127.0.0.1
-      DB_PORT: ${{ matrix.database == 'pgsql' && '5432' || '3306' }}
-      DB_DATABASE: ln_starter_ci
-      DB_USERNAME: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
-      DB_PASSWORD: ${{ matrix.database == 'pgsql' && 'postgres' || 'root' }}
-      LN_STARTER_ALLOW_TEST_DB_RESET: '1'
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
-        with:
-          php-version: ${{ matrix.php }}
-          extensions: mbstring, zip, pdo_sqlite, pdo_mysql, pdo_pgsql, pcntl
-          coverage: none
-
-      - name: Pin Testbench for Laravel ${{ matrix.framework.laravel }}
-        run: composer require --dev "orchestra/testbench:${{ matrix.framework.testbench }}" --no-update --no-interaction
-
-      - name: Install dependencies
-        uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
-        with:
-          dependency-versions: highest
-
-      # Only supported lanes release. There is no EOL exemption here, because
-      # nothing end-of-life is being published.
-      - name: Composer audit
-        run: composer audit --locked
-
-      - name: Run test suite
-        run: vendor/bin/phpunit --display-skipped
-
-      # A skipped race test is indistinguishable from a passing one in the
-      # summary. On a release lane it MUST execute.
-      - name: Assert the row-lock race test actually ran
-        run: |
-          php -r 'exit(function_exists("pcntl_fork") ? 0 : 1);' \
-            || { echo "::error::pcntl is unavailable; the race test cannot run"; exit 1; }
-          vendor/bin/phpunit \
-            --filter test_concurrent_link_and_code_consumption_has_exactly_one_winner \
-            --fail-on-skipped \
-            --testdox
+    name: Full qualification
+    uses: ./.github/workflows/tests.yml
 
   # ------------------------------------------------------------------ gate 2
-  # Builds THE artifact. Exactly one archive is produced here and everything
-  # downstream consumes this build — a rebuild would be a different artifact
-  # (ADR 0004).
+  # Builds THE artifact, exactly once. release-check.php performs the build,
+  # inspects it, checksums it and exports those bytes; nothing here rebuilds,
+  # because a second `composer archive` is a different artifact however
+  # identical it looks (ADR 0004).
   artifact:
-    name: Build and qualify the release artifact
+    name: Qualify and export the release artifact
     runs-on: ubuntu-latest
     needs: qualify
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # release-check.php inspects tags; a shallow clone has none.
+          fetch-depth: 0
 
       - name: Set up PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
@@ -136,48 +56,48 @@ jobs:
           extensions: mbstring, zip
           coverage: none
 
+      # The version reaches the shell through the environment, never through
+      # template interpolation: a tag may legally be named `v1.0.0$(id)`, and
+      # `${{ }}` would paste that straight into the script before anything had
+      # a chance to validate it. Validated here as well as in the preflight,
+      # because this step is what writes it to $GITHUB_OUTPUT.
       - name: Resolve the version under release
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "$EVENT_NAME" = "push" ]; then
             VERSION="${GITHUB_REF#refs/tags/}"
           else
-            VERSION="${{ inputs.version }}"
+            VERSION="$INPUT_VERSION"
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "::error::Refusing a non-canonical version"
+            exit 1
+          }
+
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version under release: $VERSION"
 
-      # Fail-closed preflight: SemVer, tag/HEAD agreement, release notes,
-      # changelog section, manifest, source hygiene, archive contents,
-      # installability and checksum. It refuses a dirty tree outright.
-      - name: Release preflight
-        run: php scripts/release-check.php --version=${{ steps.version.outputs.version }}
-
-      # Rebuilt here only to hand the exact files downstream; release-check
-      # above has already refused the build if anything was wrong with it.
-      - name: Stage the archive and checksum
-        id: stage
+      # Fail-closed preflight: canonical SemVer, clean tree, annotated tag on
+      # HEAD, finalised release notes, changelog section, manifest, source
+      # hygiene, then the archive — built, inspected, installed, checksummed
+      # and exported to --output-dir. Those exported bytes are the release.
+      - name: Release preflight and artifact export
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p "$RUNNER_TEMP/release"
-          php scripts/verify-artifact.php \
-            --keep-extracted \
-            --output-path-file="$RUNNER_TEMP/release/extracted-path.txt" \
-            --output-archive-file="$RUNNER_TEMP/release/archive-path.txt"
+          php scripts/release-check.php \
+            --version="$VERSION" \
+            --output-dir="$RUNNER_TEMP/release"
 
-          ARCHIVE="$(cat "$RUNNER_TEMP/release/archive-path.txt")"
-          EXTRACTED="$(cat "$RUNNER_TEMP/release/extracted-path.txt")"
-          test -f "$ARCHIVE" || { echo "::error::archive not found"; exit 1; }
-          test -d "$EXTRACTED" || { echo "::error::extracted package not found"; exit 1; }
+          ls -l "$RUNNER_TEMP/release"
+          ( cd "$RUNNER_TEMP/release" && sha256sum --check ./*.sha256 )
 
-          cp "$ARCHIVE" "$RUNNER_TEMP/release/"
-          NAME="$(basename "$ARCHIVE")"
-          ( cd "$RUNNER_TEMP/release" && sha256sum "$NAME" > "$NAME.sha256" )
-
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "Archive: $NAME"
-          cat "$RUNNER_TEMP/release/$NAME.sha256"
-
-      - name: Upload the archive and checksum
+      - name: Upload the qualified archive and checksum
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-archive
@@ -188,9 +108,9 @@ jobs:
           retention-days: 90
 
   # ------------------------------------------------------------------ gate 3
-  # Installs a consumer from the uploaded archive. This is the step that proves
-  # what will be published actually boots as a Laravel package, and it runs
-  # against the same bytes that were checksummed.
+  # Fresh install AND upgrade, both driven from the canonical archive. The
+  # branch qualification already runs these against the working tree; what is
+  # proven here is that the bytes about to be published behave the same.
   consumer:
     name: Consumer L${{ matrix.laravel }} from the release archive
     runs-on: ubuntu-latest
@@ -213,32 +133,41 @@ jobs:
           extensions: mbstring, zip, pdo_sqlite
           coverage: none
 
-      - name: Download the release archive
+      - name: Download the qualified archive
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-archive
           path: ${{ runner.temp }}/release
 
-      - name: Verify the checksum before using the archive
+      - name: Verify the checksum and extract
         run: |
           cd "$RUNNER_TEMP/release"
           sha256sum --check ./*.sha256
-          echo "Checksum verified; this is the archive the artifact job qualified."
-
-      - name: Install a consumer from the archive
-        run: |
-          cd "$RUNNER_TEMP/release"
           ARCHIVE="$(ls ./*.zip)"
           mkdir -p extracted
           unzip -q "$ARCHIVE" -d extracted
-          test -f extracted/composer.json || { echo "::error::archive has no composer.json at its root"; exit 1; }
+          test -f extracted/composer.json || {
+            echo "::error::archive has no composer.json at its root"
+            exit 1
+          }
+          echo "Checksum verified; installing from the archive the artifact job qualified."
+
+      - name: Fresh install from the archive
+        run: |
           php "$GITHUB_WORKSPACE/package/scripts/consumer-install.php" \
             --laravel=${{ matrix.laravel }} \
             --package-path="$RUNNER_TEMP/release/extracted"
 
+      - name: Upgrade from a simulated auth v1 installation, using the archive
+        run: |
+          php "$GITHUB_WORKSPACE/package/scripts/consumer-upgrade.php" \
+            --laravel=${{ matrix.laravel }} \
+            --package-path="$RUNNER_TEMP/release/extracted"
+
   # ------------------------------------------------------------------ publish
-  # Only for a real tag, and only after every gate above is green. A dry run
-  # reaches this job's condition and stops, which is exactly what makes the
+  # Only for a real tag, and only after every gate above is green — including
+  # the full branch qualification, which `qualify` runs and this job needs. A
+  # dry run reaches this job's condition and stops, which is what makes the
   # rehearsal meaningful: everything before this point already ran.
   publish:
     name: Publish the GitHub Release
@@ -263,25 +192,32 @@ jobs:
           cd "$RUNNER_TEMP/release"
           sha256sum --check ./*.sha256
 
-      - name: Require release notes for this tag
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          test -f "docs/releases/$VERSION.md" \
-            || { echo "::error::docs/releases/$VERSION.md is missing"; exit 1; }
-          echo "notes=docs/releases/$VERSION.md" >> "$GITHUB_ENV"
-
       # gh is preinstalled on the runner, so no third-party action and no
       # additional token. GITHUB_TOKEN is scoped to contents: write on this job
-      # alone. Packagist is not published from here and holds no secret in this
-      # repository; it publishes from the tag itself.
+      # alone. Packagist publishes from the tag and holds no secret here.
+      #
+      # Every value reaching the shell comes through the environment. --verify-tag
+      # makes gh refuse a tag that does not exist on the remote.
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
+
+          printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "::error::Refusing a non-canonical tag"
+            exit 1
+          }
+
+          NOTES="docs/releases/${VERSION#v}.md"
+          test -f "$NOTES" || {
+            echo "::error::$NOTES is missing"
+            exit 1
+          }
+
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes-file "$notes" \
+            --notes-file "$NOTES" \
             --verify-tag \
             "$RUNNER_TEMP"/release/*.zip \
             "$RUNNER_TEMP"/release/*.sha256

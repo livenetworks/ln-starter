@@ -115,6 +115,13 @@ class ReleaseWorkflowTest extends TestCase
             $this->assertNotEmpty($matches[1], "no actions found in {$workflow}");
 
             foreach ($matches[1] as $use) {
+                // A local reusable workflow is a path in this repository, not a
+                // third-party action: it moves with the commit under review and
+                // has no SHA to pin.
+                if (str_starts_with($use, './')) {
+                    continue;
+                }
+
                 $this->assertMatchesRegularExpression(
                     '/@[0-9a-f]{40}$/',
                     $use,
@@ -187,6 +194,172 @@ class ReleaseWorkflowTest extends TestCase
                 "job {$job} must verify the checksum before using the archive"
             );
         }
+    }
+
+    /**
+     * The qualification a release runs must BE the branch qualification, not a
+     * reduced copy of it. A release matrix that dropped a lane could publish on
+     * weaker evidence than the branch it came from.
+     */
+    public function test_qualification_reuses_the_full_test_workflow(): void
+    {
+        $parsed = $this->releaseYaml();
+        $qualify = $parsed['jobs']['qualify'];
+
+        $this->assertSame(
+            './.github/workflows/tests.yml',
+            $qualify['uses'] ?? null,
+            'the release must call the full Tests workflow, not redefine a matrix'
+        );
+
+        $this->assertArrayNotHasKey(
+            'strategy',
+            $qualify,
+            'a release-local matrix would be a second, weaker definition of qualification'
+        );
+
+        $tests = Yaml::parseFile($this->root() . self::TESTS);
+        $triggers = $tests['on'] ?? $tests[true] ?? [];
+
+        $this->assertArrayHasKey(
+            'workflow_call',
+            $triggers,
+            'tests.yml must be callable for the release to reuse it'
+        );
+    }
+
+    /**
+     * ADR 0004's canonical-artifact rule. The preflight builds, inspects,
+     * checksums and exports one archive; anything that ran `composer archive`
+     * again would upload a different artifact from the one that was qualified.
+     */
+    public function test_the_release_builds_exactly_one_archive(): void
+    {
+        $contents = (string) file_get_contents($this->root() . self::RELEASE);
+
+        $this->assertStringContainsString('--output-dir=', $contents, 'the preflight must export the qualified archive');
+
+        $this->assertStringNotContainsString(
+            'verify-artifact.php',
+            $contents,
+            'the release workflow must not build a second archive; release-check.php exports the qualified one'
+        );
+
+        $this->assertSame(
+            1,
+            substr_count($contents, 'php scripts/release-check.php'),
+            'the preflight must be invoked exactly once'
+        );
+
+        $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');
+
+        $this->assertStringContainsString(
+            'hash_file(' . chr(39) . 'sha256' . chr(39) . ', $exported) !== $checksum',
+            $preflight,
+            'the exported bytes must be re-checksummed against the qualified value'
+        );
+    }
+
+    /**
+     * A tag name is attacker-influenced text. Git permits `v1.0.0$(id)`, and
+     * ${{ }} pastes it into the shell before anything can validate it.
+     */
+    public function test_untrusted_values_never_reach_the_shell_through_interpolation(): void
+    {
+        $parsed = $this->releaseYaml();
+
+        foreach ($parsed['jobs'] as $name => $job) {
+            foreach ($job['steps'] ?? [] as $step) {
+                $script = $step['run'] ?? null;
+
+                if (!is_string($script)) {
+                    continue;
+                }
+
+                $this->assertDoesNotMatchRegularExpression(
+                    '/\$\{\{\s*(inputs|steps|github\.ref|github\.event)/',
+                    $script,
+                    sprintf('job %s interpolates an untrusted value into a run block; pass it through env instead', $name)
+                );
+            }
+        }
+    }
+
+    public function test_the_version_is_validated_before_it_is_used(): void
+    {
+        $contents = (string) file_get_contents($this->root() . self::RELEASE);
+
+        // Both the step that publishes the value and the step that publishes
+        // the release check the shape themselves.
+        $this->assertSame(
+            2,
+            substr_count($contents, "grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'"),
+            'the version must be validated where it is resolved and again where it is published'
+        );
+    }
+
+    /**
+     * The upgrade path is the one a real 1.x consumer takes, so it must be
+     * proven against the bytes about to be published, not only the working
+     * tree.
+     */
+    public function test_the_upgrade_harness_runs_against_the_release_archive(): void
+    {
+        $parsed = $this->releaseYaml();
+        $runs = implode("
+", array_filter(array_column($parsed['jobs']['consumer']['steps'], 'run')));
+
+        foreach (['consumer-install.php', 'consumer-upgrade.php'] as $script) {
+            $this->assertStringContainsString(
+                $script,
+                $runs,
+                sprintf('the release consumer job must run %s from the archive', $script)
+            );
+        }
+
+        $this->assertStringContainsString('release/extracted', $runs, 'both harnesses must use the extracted archive');
+    }
+
+    /**
+     * A disqualified run must not leave a publishable artifact behind. The
+     * export happens after the disqualifier check, so --allow-dirty or
+     * --allow-offline produce no exported bytes at all rather than bytes
+     * labelled as qualified.
+     */
+    public function test_a_disqualified_run_exports_nothing(): void
+    {
+        $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');
+
+        $disqualified = strpos($preflight, 'does NOT qualify');
+        $export = strpos($preflight, 'Exported the qualified artifact to');
+
+        $this->assertIsInt($disqualified);
+        $this->assertIsInt($export);
+
+        $this->assertLessThan(
+            $export,
+            $disqualified,
+            'the export must come after the disqualifier exit, or an --allow run would produce a release artifact'
+        );
+    }
+
+    public function test_the_preflight_requires_an_annotated_tag(): void
+    {
+        $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');
+
+        $this->assertStringContainsString('cat-file -t', $preflight);
+        $this->assertStringContainsString(
+            "=== 'tag'",
+            $preflight,
+            'a lightweight tag records no tagger, date or message and must be refused'
+        );
+    }
+
+    public function test_the_preflight_refuses_candidate_notes_once_tagged(): void
+    {
+        $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');
+
+        $this->assertStringContainsString('still describes itself as a release candidate', $preflight);
     }
 
     public function test_the_release_preflight_is_actually_invoked(): void

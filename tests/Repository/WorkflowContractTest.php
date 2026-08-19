@@ -43,7 +43,7 @@ class WorkflowContractTest extends TestCase
             $contents = (string) file_get_contents($this->root() . $workflow);
 
             preg_match_all(
-                '#php\s+"?(?:\$GITHUB_WORKSPACE/|package/)?(scripts/[A-Za-z0-9._/-]+\.php)#',
+                '#php\s+"?(?:\$GITHUB_WORKSPACE/)?(?:package/)?(scripts/[A-Za-z0-9._/-]+\.php)#',
                 $contents,
                 $matches
             );

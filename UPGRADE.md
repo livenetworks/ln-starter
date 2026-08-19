@@ -19,15 +19,26 @@ php artisan ln-starter:auth-v2-readiness
 ```
 
 ```bash
-# Upgrade from 1.2.1 — back up the database first
-php artisan ln-starter:auth-v2-audit          # must exit 0 before continuing
-# add LN_AUTH_PEPPER and LN_SECURITY_PSEUDONYM_KEY to .env
+# Upgrade from 1.2.1 — back up the database first.
+#
+# Order matters and is not the obvious one: ln-starter:auth-v2-audit does not
+# exist in 1.2.1, so it can only run AFTER the package is required. The peppers
+# must be set BEFORE that, because package discovery boots the provider during
+# composer require and it validates auth configuration.
+
+# 1. LN_AUTH_PEPPER and LN_SECURITY_PSEUDONYM_KEY into .env
 composer require livenetworks/ln-starter:^2.0
+
+php artisan ln-starter:auth-v2-audit      # names every stale v1 view; exits 0 when clean
+# 2. port or delete each path it reports, then re-run until it exits 0
+
+php artisan ln-starter:install            # refuses to run while a stale view remains
 php artisan migrate
 php artisan ln-starter:auth-v2-readiness
 php artisan ln-starter:auth-v2-cutover --force   # irreversible
+
 php artisan config:cache && php artisan route:cache && php artisan view:cache
-# restart queue workers, then smoke-test a real login
+# 3. restart queue workers, then smoke-test a real login
 ```
 
 Set the two secrets **before** the first artisan call: package discovery boots
