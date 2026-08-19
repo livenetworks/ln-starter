@@ -307,7 +307,17 @@ file_put_contents($installDir . DIRECTORY_SEPARATOR . 'composer.json', json_enco
         'url' => str_replace('\\', '/', $packageRoot),
         'options' => ['symlink' => false],
     ]],
-    'require' => ['livenetworks/ln-starter' => '*'],
+    // The shipped config calls env(), whose implementation in
+    // illuminate/support delegates to PhpOption. illuminate/support does not
+    // require vlucas/phpdotenv — laravel/framework does — so a bare install
+    // of this package's own constraints cannot evaluate the config. Every
+    // real consumer is a Laravel application and always has it, so the probe
+    // models that baseline instead of pretending the package ships into a
+    // frameworkless project.
+    'require' => [
+        'livenetworks/ln-starter' => '*',
+        'vlucas/phpdotenv' => '^5.6',
+    ],
     'minimum-stability' => 'dev',
     'prefer-stable' => true,
     'config' => ['allow-plugins' => false],

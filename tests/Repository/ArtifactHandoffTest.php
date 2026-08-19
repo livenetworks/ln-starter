@@ -99,6 +99,31 @@ class ArtifactHandoffTest extends TestCase
         );
     }
 
+    /**
+     * The installability probe must model a Laravel application, not the
+     * package's bare constraint set.
+     *
+     * The shipped config calls env(). illuminate/support provides that helper
+     * but does not require vlucas/phpdotenv (laravel/framework does), so a
+     * probe built from this package's own requirements alone fatals on a
+     * missing PhpOption before it can read a single config key. The local
+     * suite never saw it, because testbench drags in the whole framework.
+     *
+     * The real gate is the artifact job, which performs the install for
+     * real. This is the cheap source-level guard against silently dropping
+     * the baseline again.
+     */
+    public function test_the_install_probe_models_a_laravel_baseline(): void
+    {
+        $source = (string) file_get_contents($this->script);
+
+        $this->assertMatchesRegularExpression(
+            '/vlucas\/phpdotenv/',
+            $source,
+            'the probe cannot evaluate a config that calls env() without phpdotenv'
+        );
+    }
+
     public function test_the_option_is_refused_without_keep_extracted(): void
     {
         $this->requireZip();
