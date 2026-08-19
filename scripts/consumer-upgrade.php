@@ -109,8 +109,36 @@ try {
     });
 
     step('Upgrade audit reports the stale published views', function () use ($app): void {
-        $output = artisan('ln-starter:auth-v2-audit', $app);
-        assertContains($output, 'magic_wait', 'the audit did not flag the stale polling view');
+        // The audit fails closed by design: a non-zero exit is how it
+        // refuses an upgrade that would leave a v1 polling view in place.
+        // Asserted, not tolerated -- a zero exit here would mean the
+        // upgrade gate had quietly stopped blocking anything.
+        $audit = artisanAllowingFailure('ln-starter:auth-v2-audit', $app);
+
+        assertTrue($audit['code'] !== 0, 'the audit passed despite a stale v1 view being present');
+        assertContains($audit['output'], 'magic_wait', 'the audit did not flag the stale polling view');
+    });
+
+    step('Installer refuses to run while a legacy view is still published', function () use ($app): void {
+        // The installer fails closed for the same reason the audit does: a v1
+        // polling view left in place would keep calling endpoints that auth v2
+        // has turned into tombstones. Asserted here so the refusal cannot be
+        // quietly dropped -- the steps below then model the consumer doing
+        // what the audit told them to.
+        $blocked = artisanAllowingFailure('ln-starter:install --no-interaction', $app);
+
+        assertTrue($blocked['code'] !== 0, 'the installer ran despite a stale v1 view being present');
+        assertContains($blocked['output'], 'magic_wait', 'the installer did not name the offending view');
+    });
+
+    step('Port the legacy view as the audit instructs', function () use ($app): void {
+        $stale = $app . '/resources/views/vendor/ln-starter/auth/magic_wait.blade.php';
+
+        assertTrue(is_file($stale), 'the legacy fixture view is missing');
+        unlink($stale);
+
+        $audit = artisanAllowingFailure('ln-starter:auth-v2-audit', $app);
+        assertSame(0, $audit['code'], 'the audit still blocks after the legacy view was removed');
     });
 
     step('Installer refuses to clobber consumer migrations', function () use ($app, $consumerMigrationMarker): void {
@@ -155,15 +183,34 @@ try {
         assertSame('ln_security_audit_events', $found, 'the audit table was not created after opting in');
     });
 
-    step('Legacy tombstones answer exactly 410 without issuing credentials', function () use ($app): void {
-        foreach (['/magic/wait', '/magic/status'] as $path) {
-            $response = serveAndGet($app, $path);
+    step('Legacy endpoints are inert exactly as ADR 0001 specifies', function () use ($app): void {
+        // ADR 0001 section 4: GET /magic/wait redirects to the v2 login page,
+        // and GET|POST /magic/status is the 410 tombstone whose payload makes
+        // a v1 polling script stop instead of retrying. Asserted separately,
+        // because they are different contracts -- an earlier revision of this
+        // step demanded 410 from both and could never have passed.
+        $wait = serveAndGet($app, '/magic/wait');
 
-            // Exactly 410. A 302 would mean the route still resolves to
-            // something live, which is what the tombstone exists to prevent.
-            assertSame(410, $response['status'], "{$path} expected 410: " . describeResponse($response));
-            assertNotContains($response['body'], 'token', "{$path} response mentions a token");
-            assertNotContains($response['body'], 'Bearer', "{$path} response mentions a bearer credential");
+        assertSame(302, $wait['status'], '/magic/wait expected a redirect: ' . describeResponse($wait));
+        assertTrue(
+            (bool) preg_grep('#^Location:.*/login#i', $wait['headers']),
+            '/magic/wait did not redirect to the login page'
+        );
+
+        $status = serveAndGet($app, '/magic/status');
+
+        assertSame(410, $status['status'], '/magic/status expected 410: ' . describeResponse($status));
+        assertContains($status['body'], '"upgrade_required":true', 'the tombstone payload changed; v1 pollers would keep retrying');
+
+        // The POST variant stays CSRF-protected, so an unauthenticated POST
+        // must be rejected rather than answered.
+        $posted = serveAndPost($app, '/magic/status');
+
+        assertSame(419, $posted['status'], 'POST /magic/status is no longer CSRF-protected: ' . describeResponse($posted));
+
+        foreach ([$wait, $status, $posted] as $response) {
+            assertNotContains($response['body'], 'Bearer', 'a legacy endpoint mentions a bearer credential');
+            assertNotContains($response['body'], 'auth_token', 'a legacy endpoint mentions the legacy auth cookie');
         }
     });
 
@@ -198,11 +245,9 @@ try {
         $before = $pending($app);
         assertTrue($before > 0, 'the fixture should still hold a pending v1 proof');
 
-        try {
-            artisan('ln-starter:auth-v2-cutover', $app);
-        } catch (RuntimeException) {
-            // A non-zero exit is an acceptable refusal.
-        }
+        // A refusal without --force is fine; a swallowed exception is not.
+        // catch (RuntimeException) here would also have hidden a harness bug.
+        artisanAllowingFailure('ln-starter:auth-v2-cutover', $app);
 
         assertSame($before, $pending($app), 'cutover changed data without --force');
 

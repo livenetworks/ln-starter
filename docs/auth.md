@@ -146,8 +146,12 @@ Static routes are intentionally registered before the wildcard token route.
 | POST | `/auth/magic/confirm/{context}` | `auth.magic.link.consume` | Consume the link proof |
 | POST | `/logout` | `logout` | Invalidate the web session and rotate CSRF |
 
-For one compatibility release, `/magic/wait` and `GET|POST /magic/status` are
-read-only tombstones. They return HTTP 410 and never issue credentials. Old
+For one compatibility release the v1 endpoints remain reachable but inert.
+`GET /magic/wait` redirects to the v2 login page with the generic message;
+`GET|POST /magic/status` returns HTTP 410 with
+`{"ok":false,"error":"No session","upgrade_required":true}`, which is what
+makes an old polling script stop rather than retry a 404 loop. The POST
+variant keeps normal CSRF protection. Neither issues credentials. Old
 `auth.magic.show`/`auth.magic.consume` route names are deliberately absent so a
 secret can never be appended to a query string by an old helper call.
 

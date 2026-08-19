@@ -74,8 +74,10 @@ Upgrading from a previous installation must preserve consumer property:
   underneath the consumer's values, which stay authoritative;
 - legacy `magic_link_tokens` rows are not destroyed by the upgrade;
 - retention cleanup deletes only aged terminal rows, never fresh pending ones;
-- `/magic/wait` and `/magic/status` remain credential-free HTTP 410 tombstones
-  for one release;
+- the legacy endpoints stay credential-free for one release, exactly as ADR
+  0001 section 4 specifies them: `GET /magic/wait` redirects to the v2 login
+  page, and `GET|POST /magic/status` is the HTTP 410 tombstone (the POST
+  variant still CSRF-protected);
 - `ln-starter:auth-v2-audit` reports stale published views and config rather
   than silently proceeding.
 
@@ -161,7 +163,7 @@ The full procedure lives in [`docs/deployment.md`](../deployment.md).
 | Item | Deprecated | Removal | Note |
 |---|---|---|---|
 | `AuthorizationFromCookie` / `cookie.auth` | now | next **major** | Unused by auth v2; still available for consumer-owned bearer APIs |
-| `/magic/wait`, `/magic/status` tombstones | now | next **minor** | HTTP 410, credential-free |
+| `/magic/wait`, `/magic/status` tombstones | now | next **minor** | Credential-free: `/magic/wait` redirects to login, `/magic/status` is HTTP 410 |
 | `database/migrations/auth/create_magic_link_tokens_table.php` | now | next **major** | No longer loaded or published |
 | Pre-catalog event names | now | already replaced | Mapping in `UPGRADE.md` |
 | Auth v1 published views | now | next **minor** | Reported by `ln-starter:auth-v2-audit` |

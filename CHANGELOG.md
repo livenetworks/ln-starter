@@ -42,6 +42,13 @@ All notable changes to this project will be documented in this file.
 - Fail auth-v2 production readiness when the database cannot provide transactional row locking (SQLite, or a non-InnoDB `magic_login_attempts` table), since `lockForUpdate()` is silently a no-op there and single-use consumption would not be atomic
 
 ### Fixed
+- Correct the documented legacy-endpoint contract to match the accepted ADR 0001: `/magic/wait` redirects to the v2 login page and only `/magic/status` is an HTTP 410 tombstone. ADR 0003, `docs/auth.md`, this changelog and the upgrade harness had all drifted to claiming 410 for both, so that harness step asserted something the implementation never did
+- Render the shipped auth pages without a frontend build. `layouts/_auth.blade.php` called `@vite()` unconditionally, which throws when the manifest is missing or does not list an entry — so a fresh consumer, or any deploy where the asset build was skipped, got HTTP 500 on `/login` rather than an unstyled working page. The suite could not see it: every auth test overrode `ln-starter.auth.layout` with a fixture, so the layout that ships had never been rendered. The tags are now emitted only when the application has actually built them, and `AuthPageRenderingTest` renders the real layout
+- Let the release artifact's installability probe evaluate the shipped config. `config/ln-starter.php` calls `env()`; `illuminate/support` provides that helper but does not require `vlucas/phpdotenv` (`laravel/framework` does), so the probe modelled an environment no consumer has and failed on a missing `PhpOption`. The probe now installs the Laravel baseline; the package's own requirements are unchanged
+- Assert the upgrade audit and the installer *fail closed* on a stale published v1 view instead of running them through a helper that throws on any non-zero exit. Both commands report by exiting non-zero, so those harness steps could never have passed; the harness now asserts the refusal and then models the documented remediation
+- Replace a `catch (RuntimeException) {}` around the cutover refusal, which would equally have swallowed a harness bug, with an explicit failure-tolerant call
+- Report the response that failed a consumer smoke test — status plus document title, with key-shaped values redacted, since the throwaway application runs with `APP_DEBUG=true` and the text reaches a public CI annotation
+- Emit harness failures as GitHub workflow annotations: the run summary otherwise shows only "Process completed with exit code 1", and reading the step log requires repository admin rights
 - Actually write the artifact path handed to CI: `--output-path-file` was read but never written, so the consumer job that reads it could only fail. It is now written after every check passes, refuses to run without `--keep-extracted` (which would name a directory about to be deleted), and fails the gate if the write fails. Covered by a regression test that fails when the write is removed
 - Add a source-hygiene gate that rejects C0 control characters and invalid UTF-8 in tracked files, and parses the CI workflow. Two escape sequences had been written literally as bytes 0x01 and 0x02 — invisible to `php -l`, PHPUnit, and `git diff --check`, but enough to break a regex backreference and a workflow step
 - Hand the extracted artifact path to CI through a file instead of parsing it out of human-readable output
@@ -67,7 +74,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Add `<x-ln.logout-form />` as the CSRF-safe package logout control
-- Retain `/magic/wait` and `GET|POST /magic/status` only as one-release HTTP 410 tombstones that cannot issue credentials
+- Retain `/magic/wait` and `GET|POST /magic/status` for one release as inert compatibility endpoints that cannot issue credentials: `/magic/wait` redirects to the v2 login page, `/magic/status` returns HTTP 410 with the documented payload, and its POST variant keeps normal CSRF protection
 - Implement the accepted magic-link v2 link-plus-code state machine and its security acceptance suite
 - Tighten the auth-v2 specification with constrained route ordering, bounded confirmation contexts, explicit cross-device UX, layered rate limits, versioned pepper rotation, and a v1 published-view migration policy
 - Add a Laravel 11/12/13 CI matrix that runs on SQLite, MySQL, and PostgreSQL — the stack's documented primary database

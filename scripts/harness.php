@@ -139,6 +139,25 @@ function artisan(string $arguments, string $app): string
 {
     return run(escapeshellarg(PHP_BINARY) . ' artisan ' . $arguments, $app);
 }
+/**
+ * Run an artisan command that is expected to report a problem.
+ *
+ * Some gates ARE the non-zero exit -- the upgrade audit fails closed when it
+ * finds stale published views. artisan() throws on any non-zero exit, so a
+ * caller asserting on that behaviour could never reach its assertions.
+ *
+ * @return array{code:int, output:string}
+ */
+function artisanAllowingFailure(string $arguments, string $app): array
+{
+    $command = 'cd ' . escapeshellarg($app) . ' && '
+        . escapeshellarg(PHP_BINARY) . ' artisan ' . $arguments . ' 2>&1';
+
+    exec($command, $output, $code);
+
+    return ['code' => $code, 'output' => implode(PHP_EOL, $output)];
+}
+
 
 /**
  * Create an isolated workspace under the system temp directory.
@@ -288,7 +307,7 @@ function fileInventory(string $directory): array
 /**
  * Boot `artisan serve` on an ephemeral port, issue one request, shut it down.
  *
- * @return array{status:int, body:string}
+ * @return array{status:int, body:string, headers:list<string>}
  */
 function serveRequest(string $app, string $path, string $method = 'GET'): array
 {
@@ -317,6 +336,12 @@ function serveRequest(string $app, string $path, string $method = 'GET'): array
                     'method' => $method,
                     'ignore_errors' => true,
                     'timeout' => 5,
+                    // Never follow a redirect: an assertion that a page
+                    // answers 200 must not be satisfiable by a 302 to some
+                    // other page, and a tombstone's own status is the thing
+                    // under test.
+                    'follow_location' => 0,
+                    'max_redirects' => 1,
                     'header' => "Accept: text/html\r\n",
                 ],
             ]);
@@ -333,7 +358,7 @@ function serveRequest(string $app, string $path, string $method = 'GET'): array
                     }
                 }
 
-                return ['status' => $status, 'body' => $body];
+                return ['status' => $status, 'body' => $body, 'headers' => $http_response_header ?? []];
             }
 
             usleep(200_000);
@@ -361,7 +386,7 @@ function serveRequest(string $app, string $path, string $method = 'GET'): array
  * with anything key-shaped redacted, because the caller hands this to a
  * public CI annotation.
  *
- * @param array{status:int, body:string} $response
+ * @param array{status:int, body:string, headers?:list<string>} $response
  */
 function describeResponse(array $response): string
 {
@@ -377,13 +402,13 @@ function describeResponse(array $response): string
     return sprintf('HTTP %d - %s', $response['status'], $summary === '' ? '(empty body)' : $summary);
 }
 
-/** @return array{status:int, body:string} */
+/** @return array{status:int, body:string, headers:list<string>} */
 function serveAndGet(string $app, string $path): array
 {
     return serveRequest($app, $path, 'GET');
 }
 
-/** @return array{status:int, body:string} */
+/** @return array{status:int, body:string, headers:list<string>} */
 function serveAndPost(string $app, string $path): array
 {
     return serveRequest($app, $path, 'POST');
