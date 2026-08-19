@@ -2,16 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.0.0] — unreleased (release candidate)
+## [2.0.0] — 2026-08-20
 
 > **BREAKING.** Every installation upgrading from 1.x needs configuration
 > changes before it will boot: `auth.peppers.current` and `auth.peppers.keys`
 > are now required, and the service provider throws without them. See
 > [docs/releases/2.0.0.md](docs/releases/2.0.0.md) for the full inventory and
 > the upgrade procedure, and [UPGRADE.md](UPGRADE.md) for the step-by-step.
->
-> Not tagged. The date is written in the release-finalisation commit, which is
-> then qualified and only afterwards tagged — see [ADR 0004](docs/adr/0004-versioning-release-and-distribution.md).
 
 ### Added
 - Production support matrix and release contract (ADR 0003): Laravel 12/13 supported, Laravel 11 compatibility-only, MySQL/InnoDB and PostgreSQL supported, SQLite refused in production

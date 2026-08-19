@@ -1,12 +1,9 @@
 # Upgrade notes
 
-## 2.0.0 (release candidate)
+## 2.0.0 — 2026-08-20
 
-> Everything under "Security audit logging and observability" and "Production
-> requirements added in 2.0.0" below is part of this release. At finalisation
-> this heading becomes `## 2.0.0 — YYYY-MM-DD`, matching the date in
-> [docs/releases/2.0.0.md](docs/releases/2.0.0.md) and `CHANGELOG.md`; the
-> release preflight refuses to publish while it still says "release candidate".
+> The "Security audit logging and observability" and "Production requirements
+> added in 2.0.0" sections below are part of this release.
 
 **This is a major release. An installation that upgrades without changing
 configuration will not boot** — `auth.peppers.current` and `auth.peppers.keys`
