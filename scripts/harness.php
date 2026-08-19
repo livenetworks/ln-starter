@@ -352,6 +352,31 @@ function serveRequest(string $app, string $path, string $method = 'GET'): array
     }
 }
 
+/**
+ * A one-line, log-safe description of a harness response.
+ *
+ * The throwaway application runs with APP_DEBUG=true, so its error pages can
+ * carry environment values. This never returns raw page content: only the
+ * status and the document title (where Laravel puts the exception message),
+ * with anything key-shaped redacted, because the caller hands this to a
+ * public CI annotation.
+ *
+ * @param array{status:int, body:string} $response
+ */
+function describeResponse(array $response): string
+{
+    $body = $response['body'];
+
+    $summary = preg_match('#<title[^>]*>(.*?)</title>#si', $body, $match) === 1
+        ? $match[1]
+        : substr(strip_tags($body), 0, 200);
+
+    $summary = (string) preg_replace('/\s+/', ' ', trim($summary));
+    $summary = (string) preg_replace('/base64:[A-Za-z0-9+\/=]{8,}/', 'base64:[redacted]', $summary);
+
+    return sprintf('HTTP %d - %s', $response['status'], $summary === '' ? '(empty body)' : $summary);
+}
+
 /** @return array{status:int, body:string} */
 function serveAndGet(string $app, string $path): array
 {

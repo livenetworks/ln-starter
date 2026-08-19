@@ -161,7 +161,7 @@ try {
 
             // Exactly 410. A 302 would mean the route still resolves to
             // something live, which is what the tombstone exists to prevent.
-            assertSame(410, $response['status'], "{$path} returned {$response['status']}, expected 410");
+            assertSame(410, $response['status'], "{$path} expected 410: " . describeResponse($response));
             assertNotContains($response['body'], 'token', "{$path} response mentions a token");
             assertNotContains($response['body'], 'Bearer', "{$path} response mentions a bearer credential");
         }

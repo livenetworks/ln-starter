@@ -169,7 +169,7 @@ try {
 
     step('HTTP smoke test', function () use ($app): void {
         $login = serveAndGet($app, '/login');
-        assertSame(200, $login['status'], 'the login form did not render');
+        assertSame(200, $login['status'], 'the login form did not render: ' . describeResponse($login));
 
         // A real, populated hidden _token — not merely the word "csrf"
         // somewhere in the markup, which would pass on a page that mentions
@@ -181,7 +181,7 @@ try {
         );
 
         $code = serveAndGet($app, '/auth/magic/code');
-        assertSame(200, $code['status'], 'the code form did not render');
+        assertSame(200, $code['status'], 'the code form did not render: ' . describeResponse($code));
 
         // Exactly 419. Accepting 302 would let the Step 1 regression — logout
         // reachable without CSRF protection — pass this gate unnoticed.
@@ -189,7 +189,7 @@ try {
         assertSame(
             419,
             $logout['status'],
-            'POST /logout without a CSRF token must be rejected with 419, got ' . $logout['status']
+            'POST /logout without a CSRF token must be rejected with 419: ' . describeResponse($logout)
         );
     });
 
