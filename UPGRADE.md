@@ -2,6 +2,12 @@
 
 ## 2.0.0 (release candidate)
 
+> Everything under "Security audit logging and observability" and "Production
+> requirements added in 2.0.0" below is part of this release. At finalisation
+> this heading becomes `## 2.0.0 — YYYY-MM-DD`, matching the date in
+> [docs/releases/2.0.0.md](docs/releases/2.0.0.md) and `CHANGELOG.md`; the
+> release preflight refuses to publish while it still says "release candidate".
+
 **This is a major release. An installation that upgrades without changing
 configuration will not boot** — `auth.peppers.current` and `auth.peppers.keys`
 are now required and the service provider throws without them.
@@ -53,7 +59,7 @@ php artisan config:cache && php artisan route:cache && php artisan view:cache
 The cutover destroys pending v1 proofs and cannot be undone by downgrading.
 Users mid-login simply request a new link.
 
-## Unreleased — security audit logging & observability
+## Security audit logging and observability (2.0.0)
 
 Nothing is required to keep working: the log sink is on by default, the database
 sink is opt-in, and `SecurityEventLogger::record()` keeps its previous shape.
@@ -146,7 +152,7 @@ transactional row locking (SQLite, or a non-InnoDB attempts/audit table on
 MySQL/MariaDB), because `lockForUpdate()` is silently a no-op there and
 single-use proof consumption would not be atomic.
 
-## Production requirements added in this release
+## Production requirements added in 2.0.0
 
 Readiness now refuses to boot in production unless the deployment is safe.
 Each of these was previously unchecked:
