@@ -245,9 +245,20 @@ try {
         $before = $pending($app);
         assertTrue($before > 0, 'the fixture should still hold a pending v1 proof');
 
-        // A refusal without --force is fine; a swallowed exception is not.
-        // catch (RuntimeException) here would also have hidden a harness bug.
-        artisanAllowingFailure('ln-starter:auth-v2-cutover', $app);
+        // The refusal is the contract, so both halves of it are asserted: a
+        // non-zero exit, and an explanation naming the flag that confirms a
+        // destructive action. Discarding the result would let a command that
+        // wrongly exits 0 pass, as long as it happened to change nothing --
+        // and a catch (RuntimeException) here would equally have hidden a
+        // harness bug.
+        $refusal = artisanAllowingFailure('ln-starter:auth-v2-cutover', $app);
+
+        assertTrue($refusal['code'] !== 0, 'cutover passed without --force');
+        assertContains(
+            $refusal['output'],
+            '--force',
+            'cutover did not explain how to confirm the destructive action'
+        );
 
         assertSame($before, $pending($app), 'cutover changed data without --force');
 

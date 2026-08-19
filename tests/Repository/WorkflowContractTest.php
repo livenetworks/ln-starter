@@ -11,8 +11,8 @@ use PHPUnit\Framework\TestCase;
  * was written for — it fails at "No such file or directory", or worse, a
  * `git add -A` quietly commits the deletion and the gate simply stops
  * existing. `scripts/consumer-upgrade.php` went missing from a working tree
- * once (an antivirus deny on that exact path); nothing in the suite would have
- * noticed if it had been committed that way.
+ * once — an on-access security scanner quarantined that exact path — and
+ * nothing in the suite would have noticed if it had been committed that way.
  */
 class WorkflowContractTest extends TestCase
 {
