@@ -356,68 +356,37 @@ class ReleaseWorkflowTest extends TestCase
     }
 
     /**
-     * Finalisation has to be provable BEFORE the tag exists.
+     * --require-final adds gates the candidate stage does not have.
      *
-     * Checking it only once the tag is present is unrecoverable: the tag would
-     * already be on a commit the preflight refuses, and the policy forbids
-     * moving or deleting it, so the version number would have to be burned.
-     * --require-final brings the demand forward to the commit about to be
-     * tagged, and the workflow passes it on the rehearsal path too.
+     * Deliberately state-independent: this asserts the gates are WIRED to the
+     * repository's real documents, not what those documents currently say. An
+     * earlier version asserted the refusal itself and had to be rewritten the
+     * moment 2.0.0 was finalised — a test coupled to a date rather than to
+     * behaviour. The refusal semantics live in ReleaseFinalisationTest, which
+     * drives fixtures and holds in every state.
      */
-    public function test_finalisation_is_enforced_before_a_tag_exists(): void
+    public function test_finalisation_adds_gates_for_all_three_documents(): void
     {
         $candidate = $this->releaseCheck(['--version=v2.0.0', '--allow-dirty']);
         $final = $this->releaseCheck(['--version=v2.0.0', '--allow-dirty', '--require-final']);
-
-        // Without the flag the candidate documents are acceptable: this is the
-        // release-candidate stage, and refusing here would be premature.
-        $this->assertStringNotContainsString('still describes itself as a release candidate', $candidate['output']);
-
-        $this->assertSame(1, $final['code']);
-        $this->assertStringContainsString('still describes itself as a release candidate', $final['output']);
-        $this->assertStringContainsString('is not finalised', $final['output']);
-    }
-
-    /**
-     * Finalisation covers every document a consumer reads, and one release has
-     * one date. Dropping the candidate wording alone must not be enough: undated
-     * notes, an "Unreleased" section in UPGRADE.md that actually ships in this
-     * release, or three documents disagreeing about the date are all the same
-     * class of defect.
-     */
-    public function test_finalisation_covers_all_three_documents(): void
-    {
-        $result = $this->releaseCheck(['--version=v2.0.0', '--allow-dirty', '--require-final']);
-
-        $this->assertSame(1, $result['code']);
 
         foreach ([
             'Release notes are finalised',
             'Changelog section is finalised',
             'Upgrade notes are finalised',
-        ] as $check) {
-            $this->assertStringContainsString($check, $result['output'], "{$check} must be part of finalisation");
+        ] as $gate) {
+            $this->assertStringContainsString(
+                $gate,
+                $final['output'],
+                "{$gate} must be evaluated under --require-final"
+            );
+
+            $this->assertStringNotContainsString(
+                $gate,
+                $candidate['output'],
+                "{$gate} must not be demanded at the candidate stage"
+            );
         }
-
-        // Specifically the date, not just the candidate wording.
-        $this->assertStringContainsString('has no dated heading', $result['output']);
-    }
-
-    /**
-     * Date validity, cross-document agreement and the Unreleased refusal are
-     * covered behaviourally in ReleaseFinalisationTest, which runs the script
-     * against fixtures. Asserting on source text here would stay green if the
-     * checks became unreachable.
-     */
-    public function test_a_tag_implies_finalisation_without_the_flag(): void
-    {
-        $preflight = (string) file_get_contents($this->root() . '/scripts/release-check.php');
-
-        $this->assertStringContainsString(
-            '$requireFinal = $requireFinal || $tagExists;',
-            $preflight,
-            'an existing tag must imply the same demand as --require-final'
-        );
     }
 
     /**
@@ -533,7 +502,11 @@ class ReleaseWorkflowTest extends TestCase
         );
     }
 
-    public function test_the_release_notes_for_the_candidate_version_exist(): void
+    /**
+     * Content the notes must carry in any state. Their status wording changes
+     * at finalisation; what they say about the release does not.
+     */
+    public function test_the_release_notes_exist_and_name_what_blocks_a_boot(): void
     {
         $notes = $this->root() . '/docs/releases/2.0.0.md';
 
@@ -541,7 +514,22 @@ class ReleaseWorkflowTest extends TestCase
 
         $contents = (string) file_get_contents($notes);
 
-        $this->assertStringContainsString('release candidate', $contents);
-        $this->assertStringContainsString('auth.peppers', $contents, 'the notes must name the config that blocks boot');
+        $this->assertMatchesRegularExpression(
+            '/^# LN-Starter 2\.0\.0 — /mu',
+            $contents,
+            'the notes must be titled for the version they describe'
+        );
+
+        $this->assertStringContainsString(
+            'auth.peppers',
+            $contents,
+            'the notes must name the config that blocks boot'
+        );
+
+        $this->assertStringContainsString(
+            'auth.magic.show',
+            $contents,
+            'the notes must carry the breaking-change inventory'
+        );
     }
 }
