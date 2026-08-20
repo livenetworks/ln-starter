@@ -24,6 +24,7 @@ the same person; the column says who is accountable, not how many people exist.
 | B10 | Audit migration published, if the DB sink is used | Ops | `ls database/migrations` | `create_ln_security_audit_events_table` present | Blocking *if* `LN_SECURITY_AUDIT_DB=true` |
 | B11 | Stale v1 views removed | Dev | `php artisan ln-starter:auth-v2-audit` | Exit 0 | Blocking (upgrades only) |
 | B12 | Frontend build, if styled auth pages are wanted | Dev | `npm run build` | Manifest lists `resources/scss/auth.scss` | Non-blocking — the page works unstyled |
+| B13 | **Auth module enabled** | Dev | `php artisan route:list --name=login` | The route exists. `ln-starter.auth.enabled` defaults to **false**, and install and readiness both skip every auth check when it is off — a green readiness run with no auth routes is the failure mode | Blocking |
 
 ## Pre-deploy
 
@@ -80,13 +81,34 @@ Perform these against production configuration, in staging or a canary.
 | D8 | Worker health monitored | Ops | Your process supervisor | Workers restart on failure | Blocking |
 | D9 | Baseline recorded | Ops | One normal week of event volumes | Thresholds calibrated, not guessed | Non-blocking |
 
-## One-line preflight
+## Automated preflight
 
 ```bash
 php artisan ln-starter:auth-v2-audit \
-  && php artisan ln-starter:auth-v2-readiness \
-  && php artisan ln-starter:security-audit-prune --dry-run
+  && php artisan ln-starter:auth-v2-readiness
 ```
 
-All three exit 0 → P1–P11 and B11 are satisfied. It does **not** cover the
-manual security verification block, which needs a browser and a real mailbox.
+Add the retention check **only if the database sink is enabled**. With
+`LN_SECURITY_AUDIT_DB=false` the table does not exist and the command exits
+non-zero — correct behaviour, but a misleading preflight failure:
+
+```bash
+php artisan ln-starter:security-audit-prune --dry-run
+```
+
+### What this does not verify
+
+Two green commands are not a go-live. They check configuration; several
+blocking items are about the world outside it, and each needs a human:
+
+| Not covered | Why | Item |
+|---|---|---|
+| Real mail delivery | Readiness checks that a mailer is *configured*, not that a message arrives | P9, D4 |
+| Trusted proxies, real scheme and IP | Readiness reads `APP_URL`, not what the load balancer actually sends | P5 |
+| Scheduler registration | Nothing asserts the prune task is scheduled | P11 |
+| A deliberately chosen retention window | The default is 90 days whether or not anyone decided that | P10 |
+| Restarted queue workers | Worker age is outside the application knowledge | P13 |
+| The whole security-verification block | Needs a browser, a real mailbox and concurrency | S1-S13 |
+
+Note also that `ln-starter:auth-v2-audit` is only meaningful on an upgrade: on
+a fresh install it has nothing to find and passes trivially.

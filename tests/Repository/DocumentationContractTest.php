@@ -328,6 +328,75 @@ class DocumentationContractTest extends TestCase
         $this->assertSame([], $broken, 'broken relative documentation links: ' . implode(', ', $broken));
     }
 
+    /**
+     * A procedural precondition, not a name check.
+     *
+     * ln-starter.auth.enabled defaults to false, and both ln-starter:install
+     * and ln-starter:auth-v2-readiness skip every auth check when it is off.
+     * An adoption guide that omits the enabling step therefore produces a
+     * green readiness run with no auth routes and no warning. The earlier
+     * contract tests could not catch that: every name it used was real.
+     */
+    public function test_the_adoption_documents_require_enabling_the_auth_module(): void
+    {
+        $config = include $this->root() . '/config/ln-starter.php';
+
+        if (($config['auth']['enabled'] ?? false) === true) {
+            $this->markTestSkipped('auth is enabled by default; the instruction is no longer load-bearing.');
+        }
+
+        foreach ([
+            'docs/consumer-adoption.md',
+            'docs/consumer-go-live-checklist.md',
+        ] as $doc) {
+            $this->assertMatchesRegularExpression(
+                '/auth[.]enabled/',
+                $this->read($doc),
+                $doc . ' must tell the reader to enable the auth module; the default is false'
+            );
+        }
+    }
+
+    /**
+     * Event-to-reason pairing, extracted from the code.
+     *
+     * Every reason routed through the state machine's reject() is staged as
+     * auth.magic.proof.rejected. A runbook that files one of them under
+     * proof.replayed sends an operator to an alert that will never fire --
+     * which is exactly the mistake this test was written after.
+     */
+    public function test_rejected_reasons_are_not_documented_as_replays(): void
+    {
+        $machine = $this->read('src/Support/MagicLoginStateMachine.php');
+
+        preg_match_all('/->reject\(\s*\$attempt,\s*ReasonCode::([A-Za-z]+)/', $machine, $matches);
+
+        $this->assertNotEmpty($matches[1], 'no reject() reason codes were extracted; the call shape changed');
+
+        $rejectOnly = [];
+
+        foreach (array_unique($matches[1]) as $case) {
+            $rejectOnly[] = constant(ReasonCode::class . '::' . $case)->value;
+        }
+
+        $runbooks = explode(chr(10), $this->read('docs/runbooks.md'));
+        $offences = [];
+
+        foreach ($runbooks as $number => $line) {
+            if (!str_contains($line, 'proof.replayed')) {
+                continue;
+            }
+
+            foreach ($rejectOnly as $reason) {
+                if (str_contains($line, $reason)) {
+                    $offences[] = sprintf('line %d attributes %s to proof.replayed', $number + 1, $reason);
+                }
+            }
+        }
+
+        $this->assertSame([], $offences, implode('; ', $offences));
+    }
+
     public function test_the_go_live_checklist_covers_the_operational_commands(): void
     {
         $checklist = $this->read('docs/consumer-go-live-checklist.md');

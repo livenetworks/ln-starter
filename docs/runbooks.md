@@ -17,7 +17,7 @@ deviation. The windows below are starting points, not prescriptions.
 | Signal | Source event | Group by | Window | Threshold philosophy | False positives | Operator action |
 |---|---|---|---|---|---|---|
 | Abnormal rate-limit volume | `auth.magic.rate_limited` | `reason_code`, `principal_key` | 5–15 min | Multiple of the weekly baseline for that reason code | Marketing sends, a retry-happy client, a shared corporate NAT | Identify whether one principal or many; if many, check for a distributed attempt. Do not lower the limits reflexively |
-| Replay detection | `auth.magic.proof.replayed` | `principal_key`, `reason_code` | 15 min | Any sustained rise above baseline; a low steady rate is normal | Double-click on the confirm button, mail scanners pre-fetching links, browser prefetch | If `proof_already_consumed` dominates, likely benign duplication. `proof_revoked` in volume warrants investigation |
+| Replay detection | `auth.magic.proof.replayed` | `principal_key`, `reason_code` | 15 min | Any sustained rise above baseline; a low steady rate is normal | Double-click or double-submit on the confirmation form. **Not** link prefetch — the link `GET` is read-only and consumes nothing, so a scanner opening it cannot produce a replay | If `proof_already_consumed` dominates, likely benign duplication. `proof_revoked` in volume warrants investigation |
 | Expired / invalid proof spike | `auth.magic.proof.expired`, `auth.magic.proof.rejected` | `reason_code` | 15 min | Deviation from baseline | Delayed mail delivery pushes users past the window | Correlate with `auth.magic.delivery.*` latency before blaming the user |
 | Delivery failure | `auth.magic.delivery.failed` | `reason_code` | 5 min | **Near-zero tolerance** — any sustained rate means logins are failing | A single transient transport blip | Treat as an outage. See "Delivery outage" below |
 | Session creation failure | `auth.session.created` with `outcome != success` | `reason_code` | 15 min | Any non-trivial rate | — | Usually session-driver or database trouble, not auth logic |
@@ -25,7 +25,8 @@ deviation. The windows below are starting points, not prescriptions.
 | Pepper unavailable | `security.readiness.failed` + `reason_code=pepper_unavailable` | — | immediate | **Any occurrence** | — | A pepper was rotated or dropped. See "Pepper rotation" |
 | Audit sink failure | `security.audit.sink_failed` | `sink` | 5 min | **Any occurrence** | — | Auth is still up — the pipeline is degraded, not the login. See "Audit sink outage" |
 | Queue / mail outage | `auth.magic.delivery.queued` without a matching `delivery.succeeded`/`failed` | `correlation_id` | 10 min | Queued-without-terminal above baseline | Worker restart during deploy | Check worker health first; a stopped worker produces exactly this shape |
-| Principal / IP concentration | `auth.magic.request.received` | `principal_key` | 1 h | One key at a large multiple of the median | Shared device, load test | `principal_key` is pseudonymous — you cannot read the email from it. Correlate through your own application logs |
+| Principal concentration | `auth.magic.request.received` | `principal_key` | 1 h | One key at a large multiple of the median | Shared device, load test | `principal_key` is pseudonymous — you cannot read the email from it. Correlate through your own application logs |
+| IP-driven throttling | `auth.magic.rate_limited` with `reason_code=rate_limited_ip` | `reason_code` | 15 min | Deviation from baseline | Shared corporate NAT | **There is no IP in the envelope or the audit table**, by design. This reason code tells you an IP limit fired; identifying *which* address requires your web server or edge logs |
 
 ### Query notes
 
@@ -83,8 +84,14 @@ deliberately excludes them, and pasting them back in defeats that.
 1. Group `auth.magic.proof.replayed` by `reason_code`.
 2. `proof_already_consumed` dominating, with matching `auth.session.created`
    successes → duplicate submissions. Benign.
-3. `proof_revoked` or `requester_binding_mismatch` in volume → someone is
-   presenting proofs from another session. Contain as below.
+3. `proof_revoked` in volume → proofs are being superseded or invalidated
+   faster than users complete them. Contain as below.
+
+`requester_binding_mismatch` is a **different event**: it is emitted under
+`auth.magic.proof.rejected`, not `proof.replayed`, because a proof presented
+from a session it was not bound to was never consumed. Watch it there. In
+volume it means someone is presenting proofs from another session, and is the
+more serious of the two signals.
 
 ### Brute-force / code attempts
 
@@ -93,9 +100,21 @@ Watch `auth.magic.code.locked` and `auth.magic.proof.rejected` with
 the account is being targeted; if many keys each show a few attempts, it is
 spraying.
 
-**Containment:** tighten the throttles in config and deploy — the limits are
-configuration, not code. Do not disable auth v2 to stop an attack; the v1
-endpoints are inert tombstones and offer no fallback.
+**Containment.** The package's own limits are **not runtime-configurable** in
+2.0.0 — they are fixed in `AuthController` (creation: 5 per email, 20 per IP,
+5 per session, in a 900-second window; verification limits alongside them).
+There is no config key to turn, so containment happens at the edge:
+
+- rate-limit or challenge the auth routes at your WAF, CDN or load balancer;
+- block or tarpit the offending source there;
+- if the target is one account, disable that account through your own
+  application's controls.
+
+Do not disable auth v2 to stop an attack: the v1 endpoints are inert tombstones
+and offer no fallback, so switching it off removes login entirely.
+
+Making these limits configurable is a reasonable feature request against a
+future minor version. It is not something to change quietly during an incident.
 
 ### Delivery outage
 
@@ -125,11 +144,19 @@ proofs, `keys` maps every id that must remain resolvable.
 
 1. Add the new key alongside the old one. **Do not remove the old key.**
 2. Point `current` at the new id.
-3. Rebuild the config cache and **restart queue workers** — a worker holding
-   the old config will sign with the old pepper.
-4. Keep the retired key for at least as long as a pending attempt can live
-   (the attempt expiry window), and longer if you want old audit digests to
-   stay resolvable.
+3. Rebuild the config cache and **restart queue workers.** A stale worker does
+   not silently fall back to the old pepper: the queued job carries an explicit
+   `pepperId`, so a worker whose config lacks that key fails while hashing
+   rather than producing a proof nobody can verify. The failure is loud, but it
+   is still a failed login — restart the workers.
+4. Keep the retired key for at least as long as a pending attempt can live —
+   the attempt expiry window. Nothing longer is required: the auth pepper signs
+   proofs only.
+
+   **The auth pepper is not the audit pepper.** `principal_key` digests come
+   from `ln-starter.logging.pseudonym`, a separate key with a separate rotation
+   procedure below. Rotating the auth pepper does not affect audit correlation,
+   and rotating the pseudonym key does not affect authentication.
 5. Verify with `ln-starter:auth-v2-readiness`.
 
 **Removing a key too early** makes every pending attempt that references it

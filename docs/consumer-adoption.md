@@ -51,9 +51,27 @@ required; see the environment contract below.
 # LN_SECURITY_PSEUDONYM_KEY=base64:<32 random bytes, base64-encoded>
 
 composer require livenetworks/ln-starter:^2.0
+```
+
+**Now enable the auth module.** `ln-starter.auth.enabled` defaults to
+**`false`**, and this is the step most easily missed, because skipping it fails
+*quietly*: both `ln-starter:install` and `ln-starter:auth-v2-readiness` skip
+every auth check when the module is off. You get a green readiness run, no auth
+routes, and no indication that anything is missing.
+
+```php
+// config/ln-starter.php
+'auth' => [
+    'enabled' => true,
+    // ...
+],
+```
+
+```bash
 php artisan ln-starter:install
 php artisan migrate
 php artisan ln-starter:auth-v2-readiness
+php artisan route:list --name=login    # sanity: the auth routes exist
 ```
 
 `ln-starter:install` publishes config, views and migrations, runs the upgrade
@@ -124,7 +142,7 @@ base64-encoded, and store them in your secret manager — never in the repositor
 | `LN_SECURITY_PSEUDONYM_ID` | No | `v1` | Bump alongside a key rotation | Marks which key produced a digest | Old digests become unresolvable if the key is dropped | `ln-starter:auth-v2-readiness` |
 | `LN_SECURITY_LOG_ENABLED` | No | `true` | `true` | — | Disabling loses the audit trail; auth keeps working | Trigger a login, check the channel |
 | `LN_SECURITY_LOG_CHANNEL` | No | default channel | A dedicated channel | — | Events land in the app log instead | `config('ln-starter.logging.channel')` |
-| `LN_SECURITY_LOG_FALLBACK_CHANNEL` | No | none | Set if the primary channel can fail | — | Events lost if the primary channel is down | Break the primary channel in staging |
+| `LN_SECURITY_LOG_FALLBACK_CHANNEL` | No | unset — the application's default logger is used | Set a channel explicitly if the primary can fail | — | Fallback writes land in the app log rather than a dedicated channel | `ln-starter:auth-v2-readiness` reports the resolved value |
 | `LN_SECURITY_LOG_MAX_DEPTH` | No | `4` | Leave as is | — | Deeper context is truncated | — |
 | `LN_SECURITY_LOG_MAX_FIELDS` | No | `50` | Leave as is | — | Extra fields dropped | — |
 | `LN_SECURITY_LOG_MAX_VALUE` | No | `512` | Leave as is | — | Long values truncated | — |
