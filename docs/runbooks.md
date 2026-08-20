@@ -28,6 +28,16 @@ deviation. The windows below are starting points, not prescriptions.
 | Principal concentration | `auth.magic.request.received` | `principal_key` | 1 h | One key at a large multiple of the median | Shared device, load test | `principal_key` is pseudonymous — you cannot read the email from it. Correlate through your own application logs |
 | IP-driven throttling | `auth.magic.rate_limited` with `reason_code=rate_limited_ip` | `reason_code` | 15 min | Deviation from baseline | Shared corporate NAT | **There is no IP in the envelope or the audit table**, by design. This reason code tells you an IP limit fired; identifying *which* address requires your web server or edge logs |
 
+### State-machine rejection routing
+
+This row is the authoritative mapping for reasons sent through the state
+machine's `reject()` path. Keep it aligned with the code; these reasons do not
+belong to the replay event.
+
+| State-machine path | Event | Reason codes |
+|---|---|---|
+| `reject()` | `auth.magic.proof.rejected` | `code_locked`, `requester_binding_mismatch`, `invalid_code`, `ineligible_principal`, `email_changed` |
+
 ### Query notes
 
 The database sink table is `ln_security_audit_events`. Real columns only:

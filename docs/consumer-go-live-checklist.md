@@ -24,7 +24,7 @@ the same person; the column says who is accountable, not how many people exist.
 | B10 | Audit migration published, if the DB sink is used | Ops | `ls database/migrations` | `create_ln_security_audit_events_table` present | Blocking *if* `LN_SECURITY_AUDIT_DB=true` |
 | B11 | Stale v1 views removed | Dev | `php artisan ln-starter:auth-v2-audit` | Exit 0 | Blocking (upgrades only) |
 | B12 | Frontend build, if styled auth pages are wanted | Dev | `npm run build` | Manifest lists `resources/scss/auth.scss` | Non-blocking — the page works unstyled |
-| B13 | **Auth module enabled** | Dev | `php artisan route:list --name=login` | The route exists. `ln-starter.auth.enabled` defaults to **false**, and install and readiness both skip every auth check when it is off — a green readiness run with no auth routes is the failure mode | Blocking |
+| B13 | **Auth module enabled** | Dev | `php artisan route:list --name=auth.magic.link.open` | The package route exists. `ln-starter.auth.enabled` defaults to **false**, and install and readiness both skip every auth check when it is off — a green readiness run with no package auth routes is the failure mode | Blocking |
 
 ## Pre-deploy
 

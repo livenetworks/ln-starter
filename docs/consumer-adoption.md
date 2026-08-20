@@ -51,9 +51,12 @@ required; see the environment contract below.
 # LN_SECURITY_PSEUDONYM_KEY=base64:<32 random bytes, base64-encoded>
 
 composer require livenetworks/ln-starter:^2.0
+php artisan vendor:publish --tag=ln-starter-config --no-interaction
 ```
 
-**Now enable the auth module.** `ln-starter.auth.enabled` defaults to
+The installer normally publishes the config, but the auth flag must be enabled
+*before* the installer and readiness command run. Publish the config explicitly,
+then enable the module. `ln-starter.auth.enabled` defaults to
 **`false`**, and this is the step most easily missed, because skipping it fails
 *quietly*: both `ln-starter:install` and `ln-starter:auth-v2-readiness` skip
 every auth check when the module is off. You get a green readiness run, no auth
@@ -71,12 +74,15 @@ routes, and no indication that anything is missing.
 php artisan ln-starter:install
 php artisan migrate
 php artisan ln-starter:auth-v2-readiness
-php artisan route:list --name=login    # sanity: the auth routes exist
+php artisan route:list --name=auth.magic.link.open
 ```
 
-`ln-starter:install` publishes config, views and migrations, runs the upgrade
-audit, and injects the auth SCSS entry into `vite.config.js`. It is idempotent:
-running it twice does not overwrite anything you have edited.
+The final route check is package-specific; a generic `login` route may belong to
+the consumer application and is not proof that LN-Starter auth is enabled.
+`ln-starter:install` publishes the remaining assets (and config when it is not
+already present), runs the upgrade audit, and injects the auth SCSS entry into
+`vite.config.js`. It is idempotent: running it twice does not overwrite anything
+you have edited.
 
 Then, in the order that matters operationally:
 
