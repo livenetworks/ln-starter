@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+Documentation and operational tooling only. No runtime behaviour changed, and
+nothing here is part of the qualified 2.0.0 artifact.
+
+### Added
+- `docs/consumer-adoption.md`: the single entry point for adopting the package — supported combinations, fresh-application and existing-application paths, the environment contract as a table (required/default/production/rotation impact/failure mode/verification), and the consumer-facing authentication contract including what may and may not be overridden
+- `docs/runbooks.md`: a monitoring baseline keyed to real event names, grouping keys and windows with relative rather than invented thresholds, plus runbooks for authentication incidents, pepper rotation, pseudonym-key rotation, audit-sink outage and retention
+- `docs/consumer-go-live-checklist.md`: build-time, pre-deploy, security-verification and post-deploy items, each with an owner, a verification command, an expected result and a blocking/non-blocking classification
+- A documentation index in the README pointing at the canonical document for each task
+- `DocumentationContractTest`: compares structured data extracted from the real enums, config and command registrations against the documents. It fails on an event name, reason code, environment variable, audit column or artisan command that the docs name but the code does not define, on a documented envelope field absent from the real envelope, on a forbidden field appearing in a query example, and on a broken relative link
+
 ## [2.0.0] — 2026-08-20
 
 > **BREAKING.** Every installation upgrading from 1.x needs configuration

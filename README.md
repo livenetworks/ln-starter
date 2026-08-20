@@ -12,8 +12,24 @@ MySQL/MariaDB (InnoDB) and PostgreSQL are supported databases. SQLite is for
 development and unit tests only — auth v2 refuses it in production because it
 cannot provide the row locking that single-use proof consumption depends on.
 
-See [`docs/deployment.md`](docs/deployment.md) and
-[ADR 0003](docs/adr/0003-auth-v2-production-and-release-contract.md).
+## Documentation
+
+Start here, then follow the link that matches what you are doing. Each
+document is authoritative for its own topic; they cross-reference rather than
+repeat, so the one you land on is the one to trust.
+
+| If you are… | Read |
+|---|---|
+| Adopting the package in an application | [`docs/consumer-adoption.md`](docs/consumer-adoption.md) |
+| Upgrading an existing installation | [`UPGRADE.md`](UPGRADE.md) |
+| Deploying to production | [`docs/deployment.md`](docs/deployment.md) |
+| Verifying a release before go-live | [`docs/consumer-go-live-checklist.md`](docs/consumer-go-live-checklist.md) |
+| Wiring auth into an app | [`docs/auth.md`](docs/auth.md) |
+| Consuming or extending security events | [`docs/security-logging.md`](docs/security-logging.md) |
+| On call, or setting up alerts | [`docs/runbooks.md`](docs/runbooks.md) |
+| Asking why the design is what it is | [ADR 0001](docs/adr/0001-magic-link-authentication-v2.md), [0002](docs/adr/0002-security-audit-logging-and-observability.md), [0003](docs/adr/0003-auth-v2-production-and-release-contract.md), [0004](docs/adr/0004-versioning-release-and-distribution.md) |
+| Looking at what changed | [`CHANGELOG.md`](CHANGELOG.md), [`docs/releases/2.0.0.md`](docs/releases/2.0.0.md) |
+
 
 ## Core principle
 
