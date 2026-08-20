@@ -180,8 +180,10 @@ does not match `^v\d+\.\d+\.\d+$`.
 ## The canonical artifact
 
 There is exactly one artifact per release: the archive produced by
-`composer archive` and inspected by `scripts/verify-artifact.php`, governed by
-`.gitattributes` `export-ignore`.
+`composer archive`, whose inclusion boundary is configured by
+`composer.json` `archive.exclude`, and then inspected fail-closed by
+`scripts/verify-artifact.php`. The verifier checks the resulting bytes instead
+of assuming that the exclusion configuration is complete.
 
 Three rules follow, and they are the point of this section:
 
@@ -205,8 +207,8 @@ directory: separate jobs run on separate machines and cannot share a
 filesystem. The artifact job exports the qualified archive and its SHA-256;
 every later job downloads both and verifies the checksum before touching the
 contents. That is what makes the consumer install meaningful — it proves the
-shipped file set, minus everything `export-ignore` strips, boots as a Laravel
-package.
+actual shipped file set, after `archive.exclude` is applied and the verifier's
+required/forbidden-entry checks pass, boots as a Laravel package.
 
 ## Rollback and yank
 

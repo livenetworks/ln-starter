@@ -17,6 +17,7 @@ nothing here is part of the qualified 2.0.0 artifact.
 ### Fixed
 - Fresh adoption now publishes the package config before asking the operator to enable auth, and verifies the package-specific `auth.magic.link.open` route instead of a potentially consumer-owned `login` route
 - Documentation contract coverage now enforces the executable fresh-install order and compares a structured `reject()` event/reason mapping with the state machine, rather than relying on same-line keyword checks
+- ADR 0004 now names the artifact mechanism the repository actually uses: Composer's `archive.exclude` plus fail-closed inspection of the produced archive, not a nonexistent `.gitattributes export-ignore` policy
 
 ## [2.0.0] — 2026-08-20
 

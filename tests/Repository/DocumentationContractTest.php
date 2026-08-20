@@ -447,4 +447,30 @@ class DocumentationContractTest extends TestCase
             );
         }
     }
+
+    public function test_the_release_adr_names_the_configured_archive_exclusion_mechanism(): void
+    {
+        $manifest = json_decode($this->read('composer.json'), true, flags: JSON_THROW_ON_ERROR);
+        $exclusions = $manifest['archive']['exclude'] ?? [];
+
+        $this->assertIsArray($exclusions);
+        $this->assertNotEmpty($exclusions, 'composer.json no longer defines archive.exclude');
+
+        $adr = $this->read('docs/adr/0004-versioning-release-and-distribution.md');
+        $this->assertStringContainsString('`composer.json` `archive.exclude`', $adr);
+        $this->assertStringContainsString('`scripts/verify-artifact.php`', $adr);
+
+        if (!is_file($this->root() . '/.gitattributes')) {
+            $this->assertStringNotContainsString(
+                '`.gitattributes` `export-ignore`',
+                $adr,
+                'ADR 0004 must not attribute archive governance to a file that does not exist'
+            );
+            $this->assertStringNotContainsString(
+                '`export-ignore` strips',
+                $adr,
+                'ADR 0004 must describe the actual shipped-file filter'
+            );
+        }
+    }
 }
