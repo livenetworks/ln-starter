@@ -2,7 +2,7 @@
 
 ## Overview
 
-LN-Starter ships five middleware classes that handle authentication, CSRF management, and request correlation. These are the generic, reusable middleware — project-specific authorization (RBAC, role checks) stays in your application.
+LN-Starter ships middleware classes that handle authentication, CSRF management, data-mode responses, and request correlation. These are the generic, reusable middleware — project-specific authorization (RBAC, role checks) stays in your application.
 
 ## AuthenticateWithSanctum
 
@@ -119,11 +119,49 @@ Route::middleware(['auth:sanctum', 'disable-csrf:bearer'])->group(function () {
 - API routes authenticated exclusively via an `Authorization` bearer token
 Do not use this marker for webhooks; register webhook exclusions through Laravel's CSRF exception configuration and independently verify the provider signature. A bare `disable-csrf`, a session-authenticated request (even one carrying an arbitrary bearer header), or a bearer header derived from the `auth_token` cookie does not bypass CSRF.
 
+## EnforceDataResponseHeader
+
+**Alias:** `ln.data`
+
+Data-mode CSRF guard. Rejects (403) any state-changing request (POST/PUT/PATCH/DELETE)
+that does not carry the `X-LN-Response: data` header; safe methods (GET/HEAD/OPTIONS)
+pass through untouched.
+
+```php
+Route::middleware(['auth:sanctum', 'ln.data'])->group(function () {
+    Route::apiResource('products', ProductController::class);
+});
+```
+
+### How it works
+
+The `X-LN-Response: data` header itself is the CSRF proof: cross-origin HTML forms
+cannot set custom headers, and a custom-header fetch triggers a CORS preflight an
+attacker origin cannot satisfy. `VerifyCsrfToken` is extended to skip the
+synchronizer token when a request carries the header **and** the matched route has
+the `ln.data` middleware assigned.
+
+### When to use
+
+- SPA / API-connector data endpoints (`respondWithRecord()`, `respondWithSync()`,
+  `respondWithDeleted()`) that use no synchronizer token
+- Apply to the whole data-API route group, not globally — a global gate would
+  reject every normal browser form POST (which correctly uses a CSRF token and
+  does not send this header)
+
+### Assumptions
+
+- Session cookie `SameSite=Lax` (Laravel default)
+- No permissive CORS configured on these routes
+
 ## VerifyCsrfToken
 
 **No alias** — replaces Laravel's built-in CSRF middleware.
 
-Extends Laravel's `ValidateCsrfToken` with one explicit skip condition: routes carrying `disable-csrf:bearer` while the request also carries an Authorization bearer header. Authentication by itself never disables CSRF protection.
+Extends Laravel's `ValidateCsrfToken` with explicit skip conditions:
+
+1. Routes carrying `disable-csrf:bearer` while the request also carries an Authorization bearer header. Authentication by itself never disables CSRF protection.
+2. **Data-mode requests on `ln.data` routes** — if the request carries `X-LN-Response: data` AND the route has the `ln.data` middleware; the header itself is the CSRF proof (see `EnforceDataResponseHeader`).
 
 ### Registration
 

@@ -1,175 +1,169 @@
-# Dual-mode response system
+# Response modes (data / ajax / full)
 
 ## Overview
 
-The core idea: a single controller action serves browser requests (HTML), AJAX requests (JSON with rendered HTML sections), and pure API requests (JSON data).
+A single controller action serves three outputs from one URL:
 
-## How it works
+| Mode | Trigger | Output |
+|---|---|---|
+| **data** | `X-LN-Response: data` header, or `Accept: application/json` (non-XHR) | Raw JSON data (for the ln-api-connector SPA) |
+| **ajax** | `X-Requested-With: XMLHttpRequest` | JSON of rendered Blade `@section`s via `_ajax` |
+| **full** | plain browser request | Full HTML page via `_app` |
 
-### Request flow
+Mode is resolved centrally by `LiveNetworks\LnStarter\Http\ResponseMode` in this
+priority order:
 
-```
-Client Request
-    │
-    ├─ Accept: application/json (not XHR)
-    │   └─ respondWith() returns response()->json()
-    │
-    ├─ X-Requested-With: XMLHttpRequest
-    │   └─ respondWith() renders Blade view through _ajax layout
-    │       └─ _ajax extracts @sections → returns JSON { title, message, content: { sectionName: html } }
-    │
-    └─ Regular browser request
-        └─ respondWith() renders Blade view through _app layout
-            └─ Full HTML page
-```
+1. `X-LN-Response: data` present → **data**
+2. else `X-Requested-With: XMLHttpRequest` → **ajax**
+3. else `wantsJson()` (implies not XHR) → **data**
+4. else → **full**
 
-### The `respondWith()` method
+## Data mode contracts
 
-```php
-protected function respondWith($content, Message $message = null)
-```
+Data mode has **no** `{message, content}` envelope — toasts are client-side. The
+helpers on `LNController` emit these shapes:
 
-Parameters:
-- `$content` — any data (collection, model, array, string)
-- `$message` — optional `Message` DTO for status feedback
+| Helper | Data-mode body |
+|---|---|
+| `respondWith($content)` | raw `$content` |
+| `respondWithRecord($record, $msg, $status = 200)` | `$record->toRecord()` (or serialized record) |
+| `respondWithSync($records, $deleted = [], $syncedAt = null)` | `{ "data": [...], "deleted": [ids], "synced_at": <unix ts> }` |
+| `respondWithDeleted($id)` | `{ "ok": true, "id": <id> }` |
 
-The method wraps both into a response array:
-```php
-$response = [
-    'message' => $message,
-    'content' => $content
-];
-```
+Central exception shaping (via `AuthExceptionHandler`, auto-registered):
 
-Then decides the output format:
+| Exception | Data-mode response |
+|---|---|
+| `ValidationException` | 422 `{ "message", "errors" }` (Laravel standard) |
+| `BusinessException` | its code (or 422) `{ "message" }` |
+| `AuthenticationException` | 401 `{ "message" }` (plain string) + `WWW-Authenticate` header |
+| 403 `HttpException` | 403 `{ "message" }` (plain string) |
+| `VersionConflictException` | 409 `{ "remote": <server record>, "field_diffs": null }` — envelope matches the ln-ashlar coordinator parser |
 
-1. **Pure JSON API**: `wantsJson() && !ajax()` → `response()->json($response)`
-2. **AJAX or browser**: renders the Blade view set via `$this->view()`, passing `$response` and `$message` to the template
+In **ajax** mode these still return the legacy `Message` DTO envelope; in **full**
+mode they fall through to Laravel's redirect-back / error page.
 
-### The `view()` method
+## Record shape — `toRecord()`
 
-```php
-protected function view(string $view)
-```
-
-Sets which Blade view to render. Returns `$this` for chaining:
+`LNReadModel` implements `ProvidesRecord` with a default
+`toRecord(): array { return $this->toArray(); }`. Override it on a read model to
+shape the exact record contract sent to the connector (the data-mode analogue of
+`toFormPayload()`):
 
 ```php
-return $this->view('members.index')->respondWith($members);
-```
-
-### Layout switching: `_ln.blade.php`
-
-The `_ln` layout is the entry point for all views. It detects whether the request is AJAX and extends the appropriate parent:
-
-```blade
-@extends(request()->header('X-Requested-With') === 'XMLHttpRequest'
-    ? 'layouts._ajax'
-    : 'layouts._app')
-```
-
-Your project provides `layouts._app` (the full HTML shell). The package provides `layouts._ajax`.
-
-### The `_ajax` layout
-
-When a view is rendered through `_ajax`, it extracts all `@section` content and returns them as a JSON object:
-
-```json
+class VProduct extends LNReadModel
 {
-    "title": "Members",
-    "message": { "type": "success", "title": "OK", "body": "..." },
-    "content": {
-        "content": "<div>...rendered HTML...</div>",
-        "sidebar": "<nav>...</nav>"
+    protected $table = 'v_products';
+
+    public function toRecord(): array
+    {
+        return [
+            'id'        => (int) $this->id,
+            'name'      => $this->name,
+            'is_active' => (bool) $this->is_active,
+        ];
     }
 }
 ```
 
-This allows the frontend JS to receive pre-rendered HTML sections and inject them into the DOM without a full page reload.
+`RecordSerializer::toArray()` resolves any record-like value (model implementing
+`ProvidesRecord`, any object with `toRecord()`, `Arrayable`, `JsonSerializable`, or
+array), so `respondWithRecord()` also works with write models and plain arrays.
 
-## Usage pattern
-
-### Controller
+## Controller pattern
 
 ```php
-class MemberController extends LNController
+class ProductController extends LNController
 {
     public function index()
     {
-        $members = VMember::paginate(25);
-
-        return $this->view('members.index')
-            ->respondWith($members);
+        // GET sync feed for the connector; full page for a browser.
+        return $this->view('products.index')
+            ->respondWithSync(VProduct::all());
     }
 
-    public function store(StoreMemberRequest $request)
+    public function store(StoreProductRequest $request)
     {
-        $member = Member::create($request->validated());
+        $product = Product::create($request->validated());
 
-        return $this->view('members.show')
-            ->respondWith(
-                $member,
-                new Message('success', 'Created', 'Member created.')
-            );
+        // Data mode → raw record JSON; ajax/full → view render + toast.
+        return $this->view('products.index')->respondWithRecord(
+            VProduct::findOrFail($product->id),
+            new Message('success', __('Created'), __('Product created.'))
+        );
+    }
+
+    public function update(string $locale, Product $product, UpdateProductRequest $request)
+    {
+        // Opt-in optimistic locking (no-op when expected_version is absent).
+        $this->guardVersion($product, $request->integer('expected_version') ?: null);
+
+        $product->update($request->validated());
+
+        return $this->view('products.index')->respondWithRecord(
+            VProduct::findOrFail($product->id)
+        );
+    }
+
+    public function destroy(string $locale, Product $product)
+    {
+        $id = (int) $product->id;
+        $product->delete();
+
+        return $this->view('products.index')->respondWithDeleted($id);
     }
 }
 ```
 
-### Blade view
+Domain errors are thrown, not hand-rendered — the central handler shapes them:
+
+```php
+if ($blocked) {
+    throw new BusinessException(__('This package is assigned to tenants.'), __('Cannot delete'), 422);
+}
+```
+
+## CSRF in data mode
+
+Data mode uses **no synchronizer token**. The `X-LN-Response: data` header is the
+CSRF proof: cross-origin HTML forms cannot set custom headers, and a custom-header
+fetch triggers a CORS preflight an attacker origin cannot satisfy. Two pieces:
+
+- `EnforceDataResponseHeader` (alias `ln.data`): rejects (403) state-changing
+  requests that lack the header. Apply it to the data-API route group.
+- `VerifyCsrfToken`: skips token validation for header-bearing requests on
+  `ln.data` routes.
+
+```php
+Route::middleware(['auth:sanctum', 'ln.data'])->group(function () {
+    Route::apiResource('products', ProductController::class);
+});
+```
+
+**Assumptions:** session cookie `SameSite=Lax` (Laravel default) and no permissive
+CORS on these routes.
+
+## Blade (ajax / full modes)
 
 ```blade
 @extends('layouts._ln')
 
-@section('title', 'Members')
+@section('title', 'Products')
 
 @section('content')
-    <table>
-        @foreach($response['content'] as $member)
-            <tr><td>{{ $member->name }}</td></tr>
-        @endforeach
-    </table>
+    @foreach($response['content'] as $product)
+        <tr><td>{{ $product->name }}</td></tr>
+    @endforeach
 @endsection
 ```
 
-### Routes
-
-```php
-// Same route, same controller — works for browser AND API
-Route::resource('members', MemberController::class);
-```
-
-### Frontend JS (AJAX consumption)
-
-```javascript
-fetch('/members', {
-    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-})
-.then(r => r.json())
-.then(data => {
-    document.getElementById('content').innerHTML = data.content.content;
-    if (data.message) showToast(data.message);
-});
-```
-
-### API consumption
-
-```javascript
-fetch('/members', {
-    headers: {
-        'Accept': 'application/json',
-        'Authorization': 'Bearer ' + token
-    }
-})
-.then(r => r.json())
-.then(data => {
-    // data.content = raw data (collection/model)
-    // data.message = Message DTO or null
-});
-```
+`_ln` switches between `_app` (full) and `_ajax` (sections) automatically. Data mode
+never reaches Blade — it returns JSON directly from the controller.
 
 ## Why this approach
 
-1. **No route duplication** — no `/api/members` alongside `/members`
-2. **No logic duplication** — validation, authorization, business logic written once
-3. **Progressive enhancement** — works without JS (full page), enhanced with JS (AJAX sections)
-4. **API-ready from day one** — same endpoint, different Accept header
+1. **No route duplication** — one URL serves browser, ajax, and the SPA connector.
+2. **No per-controller JSON hacks** — record shape, validation, domain errors, and
+   conflicts are shaped in one place.
+3. **API-ready from day one** — `Accept: application/json` yields raw data.
+4. **Offline-friendly CSRF** — header-as-proof survives an offline replay queue.

@@ -33,7 +33,7 @@ class {{ class }} extends LNController
         $item = {{ writeModelClass }}::create($validated);
 
         return $this->view('{{ viewPrefix }}.index')
-            ->respondWith(
+            ->respondWithRecord(
                 $item,
                 new Message('success', __('Created'), __('Record created successfully.'))
             );
@@ -65,7 +65,7 @@ class {{ class }} extends LNController
         $item->update($validated);
 
         return $this->view('{{ viewPrefix }}.show')
-            ->respondWith(
+            ->respondWithRecord(
                 $item,
                 new Message('success', __('Updated'), __('Record updated successfully.'))
             );
@@ -77,8 +77,8 @@ class {{ class }} extends LNController
         $item->delete();
 
         return $this->view('{{ viewPrefix }}.index')
-            ->respondWith(
-                null,
+            ->respondWithDeleted(
+                $id,
                 new Message('success', __('Deleted'), __('Record deleted successfully.'))
             );
     }

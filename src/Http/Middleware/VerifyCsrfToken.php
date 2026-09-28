@@ -4,6 +4,7 @@ namespace LiveNetworks\LnStarter\Http\Middleware;
 
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken as BaseValidateCsrfToken;
 use Illuminate\Support\Facades\Auth;
+use LiveNetworks\LnStarter\Http\ResponseMode;
 
 /**
  * Extends Laravel's CSRF middleware with an explicit route-level opt-out.
@@ -38,6 +39,19 @@ class VerifyCsrfToken extends BaseValidateCsrfToken
                 && !$request->attributes->get(AuthorizationFromCookie::REQUEST_ATTRIBUTE, false)
                 && !Auth::guard('web')->check()
             ) {
+                return true;
+            }
+        }
+
+        // Skip CSRF for data-mode requests: the X-LN-Response header itself is
+        // the CSRF proof on routes guarded by the ln.data middleware (no
+        // synchronizer token — an offline request queue would outlive stamped
+        // tokens). The EnforceDataResponseHeader guard rejects header-less
+        // state-changing requests separately.
+        if (ResponseMode::hasDataHeader($request)) {
+            $route = $request->route();
+
+            if ($route && in_array('ln.data', $route->gatherMiddleware(), true)) {
                 return true;
             }
         }

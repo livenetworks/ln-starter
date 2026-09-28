@@ -3,8 +3,9 @@
 namespace LiveNetworks\LnStarter\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use LiveNetworks\LnStarter\Contracts\ProvidesRecord;
 
-abstract class LNReadModel extends Model
+abstract class LNReadModel extends Model implements ProvidesRecord
 {
     public $timestamps = false;
     public $incrementing = false;
@@ -31,5 +32,15 @@ abstract class LNReadModel extends Model
     public function save(array $options = [])
     {
         throw new \BadMethodCallException('Cannot save a read-only model: ' . static::class);
+    }
+
+    /**
+     * Canonical record shape for data-mode responses. Defaults to the
+     * model's cast attribute array; override to coerce/shape fields for
+     * the ln-api-connector contract (mirrors toFormPayload()).
+     */
+    public function toRecord(): array
+    {
+        return $this->toArray();
     }
 }

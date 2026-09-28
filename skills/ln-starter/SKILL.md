@@ -36,6 +36,24 @@ return $this->view('products.show')->respondWith($product, $message);
 
 NEVER return `view()` directly. NEVER return `response()->json()` directly. The `respondWith()` method handles format detection automatically.
 
+### 2b. Data-mode response helpers
+
+For SPA / API-connector endpoints, use the data-mode helpers instead of
+hand-rolling JSON. Same URL, same action — the mode is auto-detected.
+
+```php
+return $this->view('products.index')->respondWithRecord($record, $message);   // write → raw record JSON
+return $this->view('products.index')->respondWithSync($records, $deleted);     // GET feed → { data, deleted, synced_at }
+return $this->view('products.index')->respondWithDeleted($id);                 // delete → { ok, id }
+```
+
+- Never write `request()->expectsJson()` branches or per-controller JSON mappers.
+- Record shape lives on the read model via `toRecord()` (override the default,
+  which returns `toArray()`), the data-mode analogue of `toFormPayload()`.
+- Validation, domain (`BusinessException`), and conflict
+  (`VersionConflictException`) responses are shaped centrally — just throw.
+- Optimistic locking: `$this->guardVersion($model, $request->integer('expected_version') ?: null)`.
+
 ### 3. Read models for views, write models for tables
 
 ```php
@@ -166,6 +184,10 @@ class AuditLog extends LNWriteModel
 - API routes authenticated exclusively by an explicit `Authorization` bearer token may add `disable-csrf:bearer`
 - Configure signed-webhook exclusions through Laravel and verify the provider signature independently
 - Never add a CSRF exemption merely because a route is authenticated
+- **Data-mode (SPA) routes:** add the `ln.data` middleware. The
+  `X-LN-Response: data` header is the CSRF proof — `EnforceDataResponseHeader`
+  rejects (403) header-less writes and `VerifyCsrfToken` skips the token for
+  header-bearing requests. No `@csrf`, no stamped token.
 
 ### 10b. Security event logging
 
@@ -208,6 +230,7 @@ See `docs/security-logging.md`.
 | `cookie.auth` | `AuthorizationFromCookie` | Cookie → Authorization header bridge |
 | `disable-csrf:bearer` | `DisableCsrf` | CSRF skip only when an Authorization bearer header is present |
 | `ln.request-id` | `AssignRequestId` | Request/correlation ID for security events + response header |
+| `ln.data` | `EnforceDataResponseHeader` | Data-mode CSRF guard (header-as-proof) |
 
 Stack order for dual-mode routes: `cookie.auth` → `sanctum.token` → (web middleware group handles CSRF)
 
