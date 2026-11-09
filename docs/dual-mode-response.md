@@ -25,10 +25,13 @@ helpers on `LNController` emit these shapes:
 
 | Helper | Data-mode body |
 |---|---|
-| `respondWith($content)` | raw `$content` |
+| `respondWith($content, $message = null)` | raw `$content` |
+| `respondWithToast($content, $message, $type, $title)` | raw `$content` (ajax/full mode carries `$message`) |
 | `respondWithRecord($record, $msg, $status = 200)` | `$record->toRecord()` (or serialized record) |
 | `respondWithSync($records, $deleted = [], $syncedAt = null)` | `{ "data": [...], "deleted": [ids], "synced_at": <unix ts> }` |
 | `respondWithDeleted($id)` | `{ "ok": true, "id": <id> }` |
+| `backWithToast($message, $type, $title)` | redirect back with `session('message')` |
+| `redirectWithToast($route, $message, $params, $type, $title)` | redirect to route with `session('message')` |
 
 Central exception shaping (via `AuthExceptionHandler`, auto-registered):
 

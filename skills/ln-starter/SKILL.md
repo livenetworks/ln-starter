@@ -95,6 +95,23 @@ new Message('warning', 'Attention', 'This product is being discontinued.')
 
 Types: `success`, `error`, `warning`, `info` — nothing else.
 
+Controllers extending `LNController` provide ready-made toast helper methods:
+
+```php
+// Message factories
+$this->toastSuccess('Product was created.');
+$this->toastError('Insufficient stock.', 'Failed');
+$this->toastWarning('This product is being discontinued.', 'Attention');
+$this->toastInfo('Prices will update at midnight.', 'Note');
+
+// Redirect helpers with toast (stored in session('message'))
+return $this->backWithToast('Settings saved.');
+return $this->redirectWithToast('products.index', 'Product deleted.');
+
+// Dual-mode view response with toast (works in full page, AJAX, and data mode)
+return $this->view('products.show')->respondWithToast($product, 'Loaded successfully.');
+```
+
 ### 5. View composers extend LNViewComposer
 
 ```php

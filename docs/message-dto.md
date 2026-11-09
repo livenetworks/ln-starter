@@ -18,12 +18,43 @@ class Message implements \JsonSerializable
 }
 ```
 
+## Controller Helpers (on `LNController`)
+
+`LNController` provides convenient helper methods to create and return `Message` DTOs without instantiating them manually:
+
+### Toast Factories
+
+```php
+// Factory methods returning Message DTO
+$msg = $this->toastSuccess('Member created successfully.');
+$msg = $this->toastError('Unable to process payment.', 'Payment Failed');
+$msg = $this->toastWarning('Subscription expires in 3 days.');
+$msg = $this->toastInfo('New features available.');
+$msg = $this->toast('custom_type', 'Body text', 'Title');
+```
+
+### Response & Redirect Helpers
+
+```php
+// Respond with view + toast message (works across full page, AJAX, and data modes)
+return $this->view('members.index')
+    ->respondWithToast($members, 'Members loaded successfully.');
+
+// Redirect back with toast notification in session
+return $this->backWithToast('Status updated successfully.');
+return $this->backWithToast('Invalid credentials provided.', 'error');
+
+// Redirect to named route with toast notification in session
+return $this->redirectWithToast('members.index', 'Member was removed.');
+return $this->redirectWithToast('members.show', $msg, ['member' => $member]);
+```
+
 ## Usage
 
 ### In controllers
 
 ```php
-// Simple success
+// Direct instantiation
 return $this->view('members.index')
     ->respondWith($members, new Message('success', 'Done', 'Members loaded.'));
 

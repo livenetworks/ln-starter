@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Ready-made toast notification helpers on `LNController`:
+  - Factory methods: `toast()`, `toastSuccess()`, `toastError()`, `toastWarning()`, `toastInfo()` returning typed `Message` DTOs
+  - Redirect helpers: `backWithToast()` and `redirectWithToast()` flashing `session('message')`
+  - Response helper: `respondWithToast()` delivering toasts across full page, AJAX, and data modes seamlessly
+- Full session message normalization in `layouts._ajax`: parses `session('message')` (`Message` DTO, array, or string), `session('ok')`, `session('error')`, and validation errors into the standard JSON `{ title, message, content }` envelope for `ln-ui-coordinator` and `ln-toast` consumption.
+
 ## [2.0.0] — 2026-08-20
 
 > **BREAKING.** Every installation upgrading from 1.x needs configuration

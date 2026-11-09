@@ -134,4 +134,80 @@ class LNController extends Controller
             throw new VersionConflictException($record, $column);
         }
     }
+
+    /**
+     * Build a typed Message DTO for toast notifications.
+     */
+    protected function toast(string $type, string $body, string $title = ''): Message
+    {
+        return new Message($type, $title ?: ucfirst($type), $body);
+    }
+
+    /**
+     * Create a success toast message.
+     */
+    protected function toastSuccess(string $body, string $title = ''): Message
+    {
+        return new Message('success', $title ?: __('Success'), $body);
+    }
+
+    /**
+     * Create an error toast message.
+     */
+    protected function toastError(string $body, string $title = ''): Message
+    {
+        return new Message('error', $title ?: __('Error'), $body);
+    }
+
+    /**
+     * Create a warning toast message.
+     */
+    protected function toastWarning(string $body, string $title = ''): Message
+    {
+        return new Message('warning', $title ?: __('Warning'), $body);
+    }
+
+    /**
+     * Create an informational toast message.
+     */
+    protected function toastInfo(string $body, string $title = ''): Message
+    {
+        return new Message('info', $title ?: __('Info'), $body);
+    }
+
+    /**
+     * Return a redirect back with a toast notification.
+     */
+    protected function backWithToast(Message|string $message, string $type = 'success', string $title = '')
+    {
+        if (is_string($message)) {
+            $message = new Message($type, $title ?: ucfirst($type), $message);
+        }
+
+        return back()->with('message', $message);
+    }
+
+    /**
+     * Return a redirect to route with a toast notification.
+     */
+    protected function redirectWithToast(string $route, Message|string $message, array $parameters = [], string $type = 'success', string $title = '')
+    {
+        if (is_string($message)) {
+            $message = new Message($type, $title ?: ucfirst($type), $message);
+        }
+
+        return redirect()->route($route, $parameters)->with('message', $message);
+    }
+
+    /**
+     * Smart response with view and toast message.
+     */
+    protected function respondWithToast($content, Message|string $message, string $type = 'success', string $title = '')
+    {
+        if (is_string($message)) {
+            $message = new Message($type, $title ?: ucfirst($type), $message);
+        }
+
+        return $this->respondWith($content, $message);
+    }
 }
